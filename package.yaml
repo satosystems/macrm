@@ -1,18 +1,19 @@
 name:                macrm
-version:             0.1.0.0
+version:             1.0.0.0
 github:              "satosystems/macrm"
 license:             BSD3
 author:              "Satoshi Ogata"
 maintainer:          "satosystems@gmail.com"
-copyright:           "2017 Satoshi Ogata"
+copyright:           "(c) 2018 Satoshi Ogata"
 
 extra-source-files:
 - README.md
 - ChangeLog.md
 
 # Metadata used when publishing your package
-# synopsis:            Short description of your package
-# category:            Development
+synopsis:            Alternative rm command for macOS that throws
+                     files/directories away to the system trash
+category:            Program
 
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
@@ -24,25 +25,38 @@ dependencies:
 
 library:
   source-dirs: src
+  other-modules:
+  - Paths_macrm
+  dependencies:
+  - MissingH
+  - cmdargs
+  - cond
+  - directory
+  - filepath
+  - process
 
 executables:
-  macrm-exe:
+  macrm:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Wall
+    - -Werror
     dependencies:
     - macrm
 
 tests:
-  macrm-test:
+  test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Wall
+    - -Werror
     dependencies:
     - macrm
