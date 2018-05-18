@@ -34,6 +34,8 @@ library:
   - directory
   - filepath
   - process
+  - text
+  - unix
 
 executables:
   macrm:

@@ -4,9 +4,14 @@
 module Macrm where
 
 import Control.Conditional (ifM)
-import Control.Monad (when)
+import Control.Monad
+  ( foldM
+  , unless
+  , when
+  )
 import Data.Char (toUpper)
 import Data.Maybe (fromJust)
+import qualified Data.Text as T
 import Data.Version (showVersion)
 import Paths_macrm (version)
 import System.Console.CmdArgs
@@ -29,6 +34,9 @@ import System.Directory
   ( doesDirectoryExist
   , doesPathExist
   , getHomeDirectory
+  , pathIsSymbolicLink
+  , renameDirectory
+  , renameFile
   )
 import System.FilePath
   ( addTrailingPathSeparator
@@ -45,6 +53,11 @@ import System.IO
 import System.Path.NameManip
   ( absolute_path
   , guess_dotdot
+  )
+import System.Posix.Files
+  ( getFileStatus
+  , isNamedPipe
+  , isSocket
   )
 import System.Process
   ( CreateProcess(std_err, std_in, std_out)
@@ -138,6 +151,28 @@ absolutize ('~':cs) = do
 absolutize path = fromJust . guess_dotdot <$> absolute_path path
 
 
+moveToTrash :: [FilePath] -> IO ()
+moveToTrash paths = do
+  homePath <- getHomeDirectory
+  let trashPath = homePath ++ "/.Trash/"
+  pairs <- mapM (makePairs trashPath) paths
+  mapM_ move pairs
+ where
+  makePairs :: FilePath -> FilePath -> IO (FilePath, FilePath)
+  makePairs trashPath oldPath = do
+    let splited = T.split (== '/') $ T.pack oldPath
+    newPath <- searchNewPath 0 $ T.unpack $ last splited
+    return (oldPath, newPath)
+   where
+    searchNewPath :: Int -> FilePath -> IO FilePath
+    searchNewPath n filename = do
+      let suffix = if n == 0 then "" else " - copy" ++ show n
+          newPath = trashPath ++ filename ++ suffix
+      ifM (doesPathExist newPath) (searchNewPath (succ n) filename) (return newPath)
+  move :: (FilePath, FilePath) -> IO ()
+  move (old, new) = ifM (doesDirectoryExist old) (renameDirectory old new) (renameFile old new)
+
+
 rm :: Macrm -> ExitCode -> [FilePath] -> [FilePath] -> IO ExitCode
 rm (Macrm False False False False False False False False []) ExitSuccess [] [] = do
   hPutStrLn stderr "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
@@ -176,7 +211,13 @@ rm options exitCode removablePaths (path:paths) = do
 remove :: [FilePath] -> IO ExitCode
 remove paths = do
   absolutePaths <- mapM absolutize paths
-  let script = createScript absolutePaths
+  (normals, specials) <- foldM filterSpecialFiles ([], []) absolutePaths
+  unless (null specials) (moveToTrash specials)
+  if null normals then return ExitSuccess else executeScript $ createScript normals
+
+
+executeScript :: String -> IO ExitCode
+executeScript script = do
   (Just stdIn, _, _, ph) <- createProcess (proc "osascript" [])
     { std_in = CreatePipe
     , std_out = CreatePipe
@@ -205,6 +246,21 @@ isAgree path = do
   hFlush stdout
   input <- getLine
   return $ not (null input) && toUpper (head input) == 'Y'
+
+
+filterSpecialFiles :: ([FilePath], [FilePath]) -> FilePath -> IO ([FilePath], [FilePath])
+filterSpecialFiles (normals, specials) path = do
+  isSpecial <- isSpecialFile path
+  if isSpecial
+    then return (normals, path:specials)
+    else return (path:normals, specials)
+
+
+isSpecialFile :: FilePath -> IO Bool
+isSpecialFile path = do
+  status <- getFileStatus path
+  isSymbolicLink <- pathIsSymbolicLink path
+  return $ isSymbolicLink || isNamedPipe status || isSocket status
 
 
 run :: IO ()
