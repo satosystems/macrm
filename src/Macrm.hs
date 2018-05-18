@@ -91,10 +91,7 @@ import System.Posix.Types
   , GroupID
   , UserID
   )
-import System.Posix.User
-  ( getRealGroupID
-  , getRealUserID
-  )
+import System.Posix.User (getRealUserID)
 import System.Process
   ( CreateProcess(std_err, std_in, std_out)
   , StdStream(CreatePipe)
@@ -212,45 +209,45 @@ moveToTrash files = do
   move (old, new) = ifM (doesDirectoryExist old) (renameDirectory old new) (renameFile old new)
 
 
-rm :: Macrm -> ExitCode -> UserID -> GroupID -> [File] -> [FilePath] -> IO ExitCode
-rm (Macrm False False False False False False False False []) ExitSuccess _ _ [] [] = do
+rm :: Macrm -> ExitCode -> UserID -> [File] -> [FilePath] -> IO ExitCode
+rm (Macrm False False False False False False False False []) ExitSuccess _ [] [] = do
   hPutStrLn stderr "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
   return $ ExitFailure 1
-rm _ exitCode _ _ [] [] = return exitCode
-rm _ exitCode _ _ removablePaths [] = do
+rm _ exitCode _ [] [] = return exitCode
+rm _ exitCode _ removablePaths [] = do
   ec <- remove removablePaths
   case ec of
     ExitSuccess -> return exitCode
     _ -> return $ ExitFailure 1
-rm options exitCode uid gid removablePaths (path:paths) = do
+rm options exitCode uid removablePaths (path:paths) = do
   pathExist <- doesPathExist path
   if not pathExist
-    then if force options then rm options exitCode uid gid removablePaths paths else do
+    then if force options then rm options exitCode uid removablePaths paths else do
       hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
-      rm options (ExitFailure 1) uid gid removablePaths paths
+      rm options (ExitFailure 1) uid removablePaths paths
     else do
       status <- getFileStatus path
       let isDir = isDirectory status
       if isDir && not (recursive options || recursive' options)
         then do
           hPutStrLn stderr $ "macrm: " ++ path ++ ": is a directory"
-          rm options (ExitFailure 1) uid gid removablePaths paths
+          rm options (ExitFailure 1) uid removablePaths paths
         else if interactive options
           then ifM (isAgree (if isDir then "examine files in directory " else "remove ") path)
             (do
               when (verbose options) $ putStrLn path
-              rm options exitCode uid gid ((path, status):removablePaths) paths)
-            (rm options exitCode uid gid removablePaths paths)
+              rm options exitCode uid ((path, status):removablePaths) paths)
+            (rm options exitCode uid removablePaths paths)
           else do
             let fileUid = fileOwner status
                 fileGid = fileGroup status
-            mMessage <- if uid /= fileUid || gid /= fileGid then Just <$> makeMessage status uid gid else return Nothing
+            mMessage <- if uid == fileUid then return Nothing else Just <$> makeMessage status fileUid fileGid
             needRemove <- if isNothing mMessage then return True else isAgree (fromJust mMessage) path
             if needRemove
               then do
                 when (verbose options) $ putStrLn path
-                rm options exitCode uid gid ((path, status):removablePaths) paths
-              else rm options exitCode uid gid removablePaths paths
+                rm options exitCode uid ((path, status):removablePaths) paths
+              else rm options exitCode uid removablePaths paths
 
 
 remove :: [File] -> IO ExitCode
@@ -346,34 +343,27 @@ makePermissionString status =
 
 makeUserAndGroupString :: UserID -> GroupID -> IO String
 makeUserAndGroupString uid gid = do
-  (_, Just stdOut, Just _, processHandle) <- createProcess (proc "id" ["-nu", show uid])
-    { std_out = CreatePipe
-    , std_err = CreatePipe
-    }
-  output <- hGetLine stdOut `catch` \(SomeException _) -> return ""
-  exitCode <- waitForProcess processHandle
-  let user = if exitCode == ExitSuccess then output else show uid
-  contents <- readFile "/etc/group"
-  let group = searchGroupName $ lines contents
+  passwdContents <- readFile "/etc/passwd"
+  let user = searchIdName (show uid) $ lines passwdContents
+  groupContents <- readFile "/etc/group"
+  let group = searchIdName (show gid) $ lines groupContents
   return $ user ++ "/" ++ group
  where
-  searchGroupName :: [String] -> String
-  searchGroupName [] = show gid
-  searchGroupName (('#':_):ss) = searchGroupName ss
-  searchGroupName (s:ss) = if groupId == show gid then groupName else searchGroupName ss
+  searchIdName :: String -> [String] -> String
+  searchIdName uidOrGid [] = uidOrGid
+  searchIdName uidOrGid (('#':_):ss) = searchIdName uidOrGid ss
+  searchIdName uidOrGid (s:ss) = if id' == uidOrGid then name else searchIdName uidOrGid ss
    where
     splitted :: [T.Text]
     splitted = T.splitOn ":" $ T.pack s
-    groupId :: String
-    groupId = T.unpack $ splitted !! 2
-    groupName :: String
-    groupName = T.unpack $ head splitted
-
+    id' :: String
+    id' = T.unpack $ splitted !! 2
+    name :: String
+    name = T.unpack $ head splitted
 
 run :: IO ()
 run = do
   options <- cmdArgs macrm
   uid <- getRealUserID
-  gid <- getRealGroupID
-  ec <- rm options ExitSuccess uid gid [] $ files options
+  ec <- rm options ExitSuccess uid [] $ files options
   exitWith ec
