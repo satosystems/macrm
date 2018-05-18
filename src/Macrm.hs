@@ -197,7 +197,7 @@ rm options exitCode removablePaths (path:paths) = do
           rm options (ExitFailure 1) removablePaths paths
         else if pathExist
           then if interactive options
-            then ifM (isAgree path)
+            then ifM (isAgree (if directoryExist then "examine files in directory " else "remove ") path)
               (do
                 when (verbose options) $ putStrLn path
                 rm options exitCode (path:removablePaths) paths)
@@ -240,9 +240,9 @@ createScript paths = concat
   ]
 
 
-isAgree :: FilePath -> IO Bool
-isAgree path = do
-  putStr $ "remove " ++ path ++ "? "
+isAgree :: String -> FilePath -> IO Bool
+isAgree message path = do
+  putStr $ message ++ path ++ "? "
   hFlush stdout
   input <- getLine
   return $ not (null input) && toUpper (head input) == 'Y'
