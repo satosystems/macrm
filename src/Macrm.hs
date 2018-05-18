@@ -14,7 +14,10 @@ import Control.Monad.Catch
   , catch
   )
 import Data.Char (toUpper)
-import Data.Maybe (fromJust)
+import Data.Maybe
+  ( fromJust
+  , isNothing
+  )
 import qualified Data.Text as T
 import Data.Version (showVersion)
 import Paths_macrm (version)
@@ -219,8 +222,8 @@ rm _ exitCode _ _ removablePaths [] = do
     _ -> return $ ExitFailure 1
 rm options exitCode uid gid removablePaths (path:paths) = do
   pathExist <- doesPathExist path
-  if not pathExist && not (force options)
-    then do
+  if not pathExist
+    then if force options then rm options exitCode uid gid removablePaths paths else do
       hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
       rm options (ExitFailure 1) uid gid removablePaths paths
     else do
@@ -230,17 +233,22 @@ rm options exitCode uid gid removablePaths (path:paths) = do
         then do
           hPutStrLn stderr $ "macrm: " ++ path ++ ": is a directory"
           rm options (ExitFailure 1) uid gid removablePaths paths
-        else if pathExist
-          then if interactive options
-            then ifM (isAgree (if isDir then "examine files in directory " else "remove ") path)
-              (do
-                when (verbose options) $ putStrLn path
-                rm options exitCode uid gid ((path, status):removablePaths) paths)
-              (rm options exitCode uid gid removablePaths paths)
-            else do
+        else if interactive options
+          then ifM (isAgree (if isDir then "examine files in directory " else "remove ") path)
+            (do
               when (verbose options) $ putStrLn path
-              rm options exitCode uid gid ((path, status):removablePaths) paths
-          else rm options exitCode uid gid removablePaths paths
+              rm options exitCode uid gid ((path, status):removablePaths) paths)
+            (rm options exitCode uid gid removablePaths paths)
+          else do
+            let fileUid = fileOwner status
+                fileGid = fileGroup status
+            mMessage <- if uid /= fileUid || gid /= fileGid then Just <$> makeMessage status uid gid else return Nothing
+            needRemove <- if isNothing mMessage then return True else isAgree (fromJust mMessage) path
+            if needRemove
+              then do
+                when (verbose options) $ putStrLn path
+                rm options exitCode uid gid ((path, status):removablePaths) paths
+              else rm options exitCode uid gid removablePaths paths
 
 
 remove :: [File] -> IO ExitCode
