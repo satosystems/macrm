@@ -9,6 +9,10 @@ import Control.Monad
   , unless
   , when
   )
+import Control.Monad.Catch
+  ( SomeException(SomeException)
+  , catch
+  )
 import Data.Char (toUpper)
 import Data.Maybe (fromJust)
 import qualified Data.Text as T
@@ -45,6 +49,7 @@ import System.FilePath
 import System.IO
   ( hClose
   , hFlush
+  , hGetLine
   , hPutStr
   , hPutStrLn
   , stderr
@@ -55,9 +60,35 @@ import System.Path.NameManip
   , guess_dotdot
   )
 import System.Posix.Files
-  ( getFileStatus
+  ( FileStatus
+  , fileGroup
+  , fileMode
+  , fileOwner
+  , getFileStatus
+  , groupExecuteMode
+  , groupReadMode
+  , groupWriteMode
+  , intersectFileModes
+  , isDirectory
   , isNamedPipe
   , isSocket
+  , ownerExecuteMode
+  , ownerReadMode
+  , ownerWriteMode
+  , otherExecuteMode
+  , otherReadMode
+  , otherWriteMode
+  , setGroupIDMode
+  , setUserIDMode
+  )
+import System.Posix.Types
+  ( FileMode
+  , GroupID
+  , UserID
+  )
+import System.Posix.User
+  ( getRealGroupID
+  , getRealUserID
   )
 import System.Process
   ( CreateProcess(std_err, std_in, std_out)
@@ -66,6 +97,9 @@ import System.Process
   , proc
   , waitForProcess
   )
+
+
+type File = (FilePath, FileStatus)
 
 
 data Macrm = Macrm
@@ -151,15 +185,15 @@ absolutize ('~':cs) = do
 absolutize path = fromJust . guess_dotdot <$> absolute_path path
 
 
-moveToTrash :: [FilePath] -> IO ()
-moveToTrash paths = do
+moveToTrash :: [File] -> IO ()
+moveToTrash files = do
   homePath <- getHomeDirectory
   let trashPath = homePath ++ "/.Trash/"
-  pairs <- mapM (makePairs trashPath) paths
+  pairs <- mapM (makePairs trashPath) files
   mapM_ move pairs
  where
-  makePairs :: FilePath -> FilePath -> IO (FilePath, FilePath)
-  makePairs trashPath oldPath = do
+  makePairs :: FilePath -> File -> IO (FilePath, FilePath)
+  makePairs trashPath (oldPath, _) = do
     let splited = T.split (== '/') $ T.pack oldPath
     newPath <- searchNewPath 0 $ T.unpack $ last splited
     return (oldPath, newPath)
@@ -173,47 +207,49 @@ moveToTrash paths = do
   move (old, new) = ifM (doesDirectoryExist old) (renameDirectory old new) (renameFile old new)
 
 
-rm :: Macrm -> ExitCode -> [FilePath] -> [FilePath] -> IO ExitCode
-rm (Macrm False False False False False False False False []) ExitSuccess [] [] = do
+rm :: Macrm -> ExitCode -> UserID -> GroupID -> [File] -> [FilePath] -> IO ExitCode
+rm (Macrm False False False False False False False False []) ExitSuccess _ _ [] [] = do
   hPutStrLn stderr "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
   return $ ExitFailure 1
-rm _ exitCode [] [] = return exitCode
-rm _ exitCode removablePaths [] = do
+rm _ exitCode _ _ [] [] = return exitCode
+rm _ exitCode _ _ removablePaths [] = do
   ec <- remove removablePaths
   case ec of
     ExitSuccess -> return exitCode
     _ -> return $ ExitFailure 1
-rm options exitCode removablePaths (path:paths) = do
+rm options exitCode uid gid removablePaths (path:paths) = do
   pathExist <- doesPathExist path
   if not pathExist && not (force options)
     then do
       hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
-      rm options (ExitFailure 1) removablePaths paths
+      rm options (ExitFailure 1) uid gid removablePaths paths
     else do
-      directoryExist <- doesDirectoryExist path
-      if directoryExist && not (recursive options || recursive' options)
+      status <- getFileStatus path
+      let isDir = isDirectory status
+      if isDir && not (recursive options || recursive' options)
         then do
           hPutStrLn stderr $ "macrm: " ++ path ++ ": is a directory"
-          rm options (ExitFailure 1) removablePaths paths
+          rm options (ExitFailure 1) uid gid removablePaths paths
         else if pathExist
           then if interactive options
-            then ifM (isAgree (if directoryExist then "examine files in directory " else "remove ") path)
+            then ifM (isAgree (if isDir then "examine files in directory " else "remove ") path)
               (do
                 when (verbose options) $ putStrLn path
-                rm options exitCode (path:removablePaths) paths)
-              (rm options exitCode removablePaths paths)
+                rm options exitCode uid gid ((path, status):removablePaths) paths)
+              (rm options exitCode uid gid removablePaths paths)
             else do
               when (verbose options) $ putStrLn path
-              rm options exitCode (path:removablePaths) paths
-          else rm options exitCode removablePaths paths
+              rm options exitCode uid gid ((path, status):removablePaths) paths
+          else rm options exitCode uid gid removablePaths paths
 
 
-remove :: [FilePath] -> IO ExitCode
-remove paths = do
+remove :: [File] -> IO ExitCode
+remove files = do
+  let (paths, statuses) = foldl (\(paths, statuses) (path, status) -> (path:paths, status:statuses)) ([], []) files
   absolutePaths <- mapM absolutize paths
-  (normals, specials) <- foldM filterSpecialFiles ([], []) absolutePaths
+  (normals, specials) <- foldM filterSpecialFiles ([], []) (zip absolutePaths statuses)
   unless (null specials) (moveToTrash specials)
-  if null normals then return ExitSuccess else executeScript $ createScript normals
+  if null normals then return ExitSuccess else executeScript $ createScript $ map fst normals
 
 
 executeScript :: String -> IO ExitCode
@@ -248,23 +284,82 @@ isAgree message path = do
   return $ not (null input) && toUpper (head input) == 'Y'
 
 
-filterSpecialFiles :: ([FilePath], [FilePath]) -> FilePath -> IO ([FilePath], [FilePath])
-filterSpecialFiles (normals, specials) path = do
-  isSpecial <- isSpecialFile path
+filterSpecialFiles :: ([File], [File]) -> File -> IO ([File], [File])
+filterSpecialFiles (normals, specials) file = do
+  isSpecial <- isSpecialFile file
   if isSpecial
-    then return (normals, path:specials)
-    else return (path:normals, specials)
+    then return (normals, file:specials)
+    else return (file:normals, specials)
 
 
-isSpecialFile :: FilePath -> IO Bool
-isSpecialFile path = do
-  status <- getFileStatus path
+isSpecialFile :: File -> IO Bool
+isSpecialFile (path, status) = do
   isSymbolicLink <- pathIsSymbolicLink path
   return $ isSymbolicLink || isNamedPipe status || isSocket status
+
+
+makeMessage :: FileStatus -> UserID -> GroupID -> IO String
+makeMessage status uid gid = do
+  userAndGroup <- makeUserAndGroupString uid gid
+  return $ "override " ++ makePermissionString status ++ "  " ++ userAndGroup ++ " for "
+
+
+makePermissionString :: FileStatus -> String
+makePermissionString status =
+  [ ifm permission ownerReadMode 'r'
+  , ifm permission ownerWriteMode 'w'
+  , ifm permission ownerExecuteMode 'x'
+  , ifm permission groupReadMode 'r'
+  , ifm permission groupWriteMode 'w'
+  , ifm permission groupExecuteMode 'x'
+  , ifm permission otherReadMode 'r'
+  , ifm permission otherWriteMode 'w'
+  , ifm permission otherExecuteMode 'x'
+  ]
+ where
+  permission :: FileMode
+  permission = fileMode status
+  ifm :: FileMode -> FileMode -> Char -> Char
+  ifm p m a =
+    let stickyBit = 0o1000
+        isU = m == ownerExecuteMode && intersectFileModes p setUserIDMode == setUserIDMode
+        isG = m == groupExecuteMode && intersectFileModes p setGroupIDMode == setGroupIDMode
+        isO = m == otherExecuteMode && intersectFileModes p stickyBit == stickyBit
+    in if intersectFileModes p m == m
+      then if isU || isG then 's' else if isO then 't' else a
+      else if isU || isG then 'S' else if isO then 'T' else '-'
+
+
+makeUserAndGroupString :: UserID -> GroupID -> IO String
+makeUserAndGroupString uid gid = do
+  (_, Just stdOut, Just _, processHandle) <- createProcess (proc "id" ["-nu", show uid])
+    { std_out = CreatePipe
+    , std_err = CreatePipe
+    }
+  output <- hGetLine stdOut `catch` \(SomeException _) -> return ""
+  exitCode <- waitForProcess processHandle
+  let user = if exitCode == ExitSuccess then output else show uid
+  contents <- readFile "/etc/group"
+  let group = searchGroupName $ lines contents
+  return $ user ++ "/" ++ group
+ where
+  searchGroupName :: [String] -> String
+  searchGroupName [] = show gid
+  searchGroupName (('#':_):ss) = searchGroupName ss
+  searchGroupName (s:ss) = if groupId == show gid then groupName else searchGroupName ss
+   where
+    splitted :: [T.Text]
+    splitted = T.splitOn ":" $ T.pack s
+    groupId :: String
+    groupId = T.unpack $ splitted !! 2
+    groupName :: String
+    groupName = T.unpack $ head splitted
 
 
 run :: IO ()
 run = do
   options <- cmdArgs macrm
-  ec <- rm options ExitSuccess [] $ files options
+  uid <- getRealUserID
+  gid <- getRealGroupID
+  ec <- rm options ExitSuccess uid gid [] $ files options
   exitWith ec
