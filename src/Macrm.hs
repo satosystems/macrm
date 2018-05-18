@@ -72,6 +72,8 @@ import System.Posix.Files
   , groupReadMode
   , groupWriteMode
   , intersectFileModes
+  , isBlockDevice
+  , isCharacterDevice
   , isDirectory
   , isNamedPipe
   , isSocket
@@ -303,7 +305,11 @@ filterSpecialFiles (normals, specials) file = do
 isSpecialFile :: File -> IO Bool
 isSpecialFile (path, status) = do
   isSymbolicLink <- pathIsSymbolicLink path
-  return $ isSymbolicLink || isNamedPipe status || isSocket status
+  return $ isSymbolicLink
+    || isNamedPipe status
+    || isSocket status
+    || isCharacterDevice status
+    || isBlockDevice status
 
 
 makeMessage :: FileStatus -> UserID -> GroupID -> IO String
