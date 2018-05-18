@@ -139,6 +139,9 @@ absolutize path = fromJust . guess_dotdot <$> absolute_path path
 
 
 rm :: Macrm -> ExitCode -> [FilePath] -> [FilePath] -> IO ExitCode
+rm (Macrm False False False False False False False False []) ExitSuccess [] [] = do
+  hPutStrLn stderr "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
+  return $ ExitFailure 1
 rm _ exitCode [] [] = return exitCode
 rm _ exitCode removablePaths [] = do
   ec <- remove removablePaths
