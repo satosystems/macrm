@@ -36,6 +36,7 @@ library:
   - filepath
   - process
   - text
+  - time
   - unix
 
 executables:

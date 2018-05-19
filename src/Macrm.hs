@@ -14,11 +14,24 @@ import Control.Monad.Catch
   , catch
   )
 import Data.Char (toUpper)
+import Data.Fixed
+  ( Fixed
+  , HasResolution
+  , Uni
+  , showFixed
+  )
 import Data.Maybe
   ( fromJust
   , isNothing
   )
 import qualified Data.Text as T
+import Data.Time.LocalTime
+  ( LocalTime(LocalTime)
+  , TimeOfDay(TimeOfDay)
+  , ZonedTime(zonedTimeToLocalTime)
+  , getZonedTime
+  , localTimeOfDay
+  )
 import Data.Version (showVersion)
 import Paths_macrm (version)
 import System.Console.CmdArgs
@@ -195,18 +208,40 @@ moveToTrash files = do
   mapM_ move pairs
  where
   makePairs :: FilePath -> File -> IO (FilePath, FilePath)
-  makePairs trashPath (oldPath, _) = do
-    let splited = T.split (== '/') $ T.pack oldPath
-    newPath <- searchNewPath 0 $ T.unpack $ last splited
-    return (oldPath, newPath)
-   where
-    searchNewPath :: Int -> FilePath -> IO FilePath
-    searchNewPath n filename = do
-      let suffix = if n == 0 then "" else " - copy" ++ show n
-          newPath = trashPath ++ filename ++ suffix
-      ifM (doesPathExist newPath) (searchNewPath (succ n) filename) (return newPath)
+  makePairs trashPath (path, _) = do
+    removedPath <- getRemovedPath trashPath $ T.unpack $ last $ T.split (== '/') $ T.pack path
+    return (path, removedPath)
   move :: (FilePath, FilePath) -> IO ()
   move (old, new) = ifM (doesDirectoryExist old) (renameDirectory old new) (renameFile old new)
+
+
+getRemovedPath :: FilePath -> FilePath -> IO FilePath
+getRemovedPath trashPath filename = do
+  zonedTime <- getZonedTime
+  dayOfTime <- getCurrentDayOfTime
+  searchRemovedPath (trashPath ++ filename) $ ' ':dayOfTime
+
+
+searchRemovedPath :: FilePath -> String -> IO FilePath
+searchRemovedPath removedPath suffix =
+  ifM (doesPathExist removedPath) (searchRemovedPath (removedPath ++ suffix) suffix) (return removedPath)
+
+
+getCurrentDayOfTime :: IO String
+getCurrentDayOfTime = do
+  zonedTime <- getZonedTime
+  let (TimeOfDay hour min sec) = (localTimeOfDay . zonedTimeToLocalTime) zonedTime
+      sHour = if hour >= 10 then show hour else '0':show hour
+      sMin = if min >= 10 then show min else '0':show min
+      uSec = changeResolution sec :: Uni
+      sSec' = showFixed True uSec
+      sSec = if uSec >= 10 then sSec' else '0':sSec'
+      suffix = sHour ++ "." ++ sMin ++ "." ++ sSec
+  return suffix
+
+
+changeResolution :: (HasResolution a, HasResolution b) => Fixed a -> Fixed b
+changeResolution = fromRational . toRational
 
 
 rm :: Macrm -> ExitCode -> UserID -> [File] -> [FilePath] -> IO ExitCode
