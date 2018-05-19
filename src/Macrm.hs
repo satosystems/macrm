@@ -202,23 +202,23 @@ absolutize path = fromJust . guess_dotdot <$> absolute_path path
 
 moveToTrash :: [File] -> IO ()
 moveToTrash files = do
-  homePath <- getHomeDirectory
-  let trashPath = homePath ++ "/.Trash/"
-  pairs <- mapM (makePairs trashPath) files
+  pairs <- mapM makePairs files
   mapM_ move pairs
  where
-  makePairs :: FilePath -> File -> IO (FilePath, FilePath)
-  makePairs trashPath (path, _) = do
-    removedPath <- getRemovedPath trashPath $ T.unpack $ last $ T.split (== '/') $ T.pack path
+  makePairs :: File -> IO (FilePath, FilePath)
+  makePairs (path, _) = do
+    removedPath <- getRemovedPath $ T.unpack $ last $ T.split (== '/') $ T.pack path
     return (path, removedPath)
   move :: (FilePath, FilePath) -> IO ()
   move (old, new) = ifM (doesDirectoryExist old) (renameDirectory old new) (renameFile old new)
 
 
-getRemovedPath :: FilePath -> FilePath -> IO FilePath
-getRemovedPath trashPath filename = do
+getRemovedPath :: FilePath -> IO FilePath
+getRemovedPath filename = do
   zonedTime <- getZonedTime
   dayOfTime <- getCurrentDayOfTime
+  homePath <- getHomeDirectory
+  let trashPath = homePath ++ "/.Trash/"
   searchRemovedPath (trashPath ++ filename) $ ' ':dayOfTime
 
 
