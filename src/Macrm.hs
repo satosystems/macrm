@@ -20,6 +20,7 @@ import Data.Fixed
   , Uni
   , showFixed
   )
+import Data.Int (Int32)
 import Data.Maybe
   ( fromJust
   , isNothing
@@ -379,9 +380,9 @@ makePermissionString status =
 makeUserAndGroupString :: UserID -> GroupID -> IO String
 makeUserAndGroupString uid gid = do
   passwdContents <- readFile "/etc/passwd"
-  let user = searchIdName (show uid) $ lines passwdContents
+  let user = searchIdName (show (fromIntegral uid :: Int32)) $ lines passwdContents
   groupContents <- readFile "/etc/group"
-  let group = searchIdName (show gid) $ lines groupContents
+  let group = searchIdName (show (fromIntegral gid :: Int32)) $ lines groupContents
   return $ user ++ "/" ++ group
  where
   searchIdName :: String -> [String] -> String
