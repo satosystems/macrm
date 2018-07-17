@@ -44,6 +44,7 @@ import System.Console.CmdArgs
   , explicit
   , help
   , name
+  , noAtExpand
   , summary
   , typ
   )
@@ -192,6 +193,7 @@ macrm = Macrm
   &= args
   &= typ "FILES/DIRS"
   } &= summary ("macrm " ++ showVersion version)
+    &= noAtExpand
 
 
 absolutize :: FilePath -> IO FilePath
