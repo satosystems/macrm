@@ -9,10 +9,6 @@ import Control.Monad
   , unless
   , when
   )
-import Control.Monad.Catch
-  ( SomeException(SomeException)
-  , catch
-  )
 import Data.Char (toUpper)
 import Data.Fixed
   ( Fixed
@@ -27,8 +23,7 @@ import Data.Maybe
   )
 import qualified Data.Text as T
 import Data.Time.LocalTime
-  ( LocalTime(LocalTime)
-  , TimeOfDay(TimeOfDay)
+  ( TimeOfDay(TimeOfDay)
   , ZonedTime(zonedTimeToLocalTime)
   , getZonedTime
   , localTimeOfDay
@@ -67,7 +62,6 @@ import System.FilePath
 import System.IO
   ( hClose
   , hFlush
-  , hGetLine
   , hPutStr
   , hPutStrLn
   , stderr
