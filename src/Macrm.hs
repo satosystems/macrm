@@ -1,5 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Macrm where
 
@@ -28,7 +30,14 @@ import Data.Time.LocalTime
   , getZonedTime
   , localTimeOfDay
   )
+import Data.Tuple.Utils
+  ( fst3
+  , snd3
+  , thd3
+  )
 import Data.Version (showVersion)
+import Foreign.C.String (withCString)
+import qualified Language.C.Inline as C
 import Paths_macrm (version)
 import System.Console.CmdArgs
   ( (&=)
@@ -51,7 +60,6 @@ import System.Directory
   ( doesDirectoryExist
   , doesPathExist
   , getHomeDirectory
-  , pathIsSymbolicLink
   , renameDirectory
   , renameFile
   )
@@ -73,10 +81,12 @@ import System.Path.NameManip
   )
 import System.Posix.Files
   ( FileStatus
+  , fileExist
   , fileGroup
   , fileMode
   , fileOwner
   , getFileStatus
+  , getSymbolicLinkStatus
   , groupExecuteMode
   , groupReadMode
   , groupWriteMode
@@ -86,6 +96,7 @@ import System.Posix.Files
   , isDirectory
   , isNamedPipe
   , isSocket
+  , isSymbolicLink
   , ownerExecuteMode
   , ownerReadMode
   , ownerWriteMode
@@ -109,9 +120,17 @@ import System.Process
   , waitForProcess
   )
 
+C.include "<fcntl.h>"
+C.include "<unistd.h>"
+C.include "<sys/stat.h>"
 
-type File = (FilePath, FileStatus)
+data FileExists = NotExists | DeadLink | Exists deriving (Eq, Show)
 
+type FileInfo =
+  ( FilePath
+  , FileExists
+  , Maybe FileStatus
+  )
 
 data Macrm = Macrm
   { directory :: Bool
@@ -124,7 +143,6 @@ data Macrm = Macrm
   , whiteouts :: Bool
   , files :: [FilePath]
   } deriving (Data, Show, Typeable)
-
 
 macrm :: Macrm
 macrm = Macrm
@@ -189,87 +207,79 @@ macrm = Macrm
   } &= summary ("macrm " ++ showVersion version)
     &= noAtExpand
 
-
 absolutize :: FilePath -> IO FilePath
 absolutize ('~':cs) = do
   homePath <- getHomeDirectory
   return $ normalise $ addTrailingPathSeparator homePath ++ cs
 absolutize path = fromJust . guess_dotdot <$> absolute_path path
 
-
-moveToTrash :: [File] -> IO ()
-moveToTrash files = do
-  pairs <- mapM makePairs files
+moveToTrash :: [FileInfo] -> IO ()
+moveToTrash fileInfos = do
+  pairs <- mapM makePairs fileInfos
   mapM_ move pairs
  where
-  makePairs :: File -> IO (FilePath, FilePath)
-  makePairs (path, _) = do
+  makePairs :: FileInfo -> IO (FilePath, FilePath)
+  makePairs (path, _, _) = do
     removedPath <- getRemovedPath $ T.unpack $ last $ T.split (== '/') $ T.pack path
     return (path, removedPath)
   move :: (FilePath, FilePath) -> IO ()
   move (old, new) = ifM (doesDirectoryExist old) (renameDirectory old new) (renameFile old new)
 
-
 getRemovedPath :: FilePath -> IO FilePath
 getRemovedPath filename = do
-  zonedTime <- getZonedTime
   dayOfTime <- getCurrentDayOfTime
   homePath <- getHomeDirectory
   let trashPath = homePath ++ "/.Trash/"
   searchRemovedPath (trashPath ++ filename) $ ' ':dayOfTime
 
-
 searchRemovedPath :: FilePath -> String -> IO FilePath
 searchRemovedPath removedPath suffix =
   ifM (doesPathExist removedPath) (searchRemovedPath (removedPath ++ suffix) suffix) (return removedPath)
 
-
 getCurrentDayOfTime :: IO String
 getCurrentDayOfTime = do
   zonedTime <- getZonedTime
-  let (TimeOfDay hour min sec) = (localTimeOfDay . zonedTimeToLocalTime) zonedTime
+  let (TimeOfDay hour minute second) = (localTimeOfDay . zonedTimeToLocalTime) zonedTime
       sHour = if hour >= 10 then show hour else '0':show hour
-      sMin = if min >= 10 then show min else '0':show min
-      uSec = changeResolution sec :: Uni
-      sSec' = showFixed True uSec
-      sSec = if uSec >= 10 then sSec' else '0':sSec'
-      suffix = sHour ++ "." ++ sMin ++ "." ++ sSec
+      sMinute = if minute >= 10 then show minute else '0':show minute
+      uSecond = changeResolution second :: Uni
+      sSecond' = showFixed True uSecond
+      sSecond = if uSecond >= 10 then sSecond' else '0':sSecond'
+      suffix = sHour ++ "." ++ sMinute ++ "." ++ sSecond
   return suffix
-
 
 changeResolution :: (HasResolution a, HasResolution b) => Fixed a -> Fixed b
 changeResolution = fromRational . toRational
 
-
-rm :: Macrm -> ExitCode -> UserID -> [File] -> [FilePath] -> IO ExitCode
+rm :: Macrm -> ExitCode -> UserID -> [FileInfo] -> [FilePath] -> IO ExitCode
 rm (Macrm False False False False False False False False []) ExitSuccess _ [] [] = do
   hPutStrLn stderr "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
   return $ ExitFailure 1
 rm _ exitCode _ [] [] = return exitCode
-rm _ exitCode _ removablePaths [] = do
-  ec <- remove removablePaths
+rm _ exitCode _ removables [] = do
+  ec <- remove removables
   case ec of
     ExitSuccess -> return exitCode
     _ -> return $ ExitFailure 1
-rm options exitCode uid removablePaths (path:paths) = do
-  pathExist <- doesPathExist path
-  if not pathExist
-    then if force options then rm options exitCode uid removablePaths paths else do
+rm options exitCode uid removables (path:paths) = do
+  fileInfo <- getFileInfo path
+  if snd3 fileInfo == NotExists
+    then if force options then rm options exitCode uid removables paths else do
       hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
-      rm options (ExitFailure 1) uid removablePaths paths
+      rm options (ExitFailure 1) uid removables paths
     else do
-      status <- getFileStatus path
-      let isDir = isDirectory status
+      let status = fromJust $ thd3 fileInfo
+          isDir = snd3 fileInfo == Exists && isDirectory status
       if isDir && not (recursive options || recursive' options)
         then do
           hPutStrLn stderr $ "macrm: " ++ path ++ ": is a directory"
-          rm options (ExitFailure 1) uid removablePaths paths
+          rm options (ExitFailure 1) uid removables paths
         else if interactive options
           then ifM (isAgree (if isDir then "examine files in directory " else "remove ") path)
             (do
               when (verbose options) $ putStrLn path
-              rm options exitCode uid ((path, status):removablePaths) paths)
-            (rm options exitCode uid removablePaths paths)
+              rm options exitCode uid (fileInfo:removables) paths)
+            (rm options exitCode uid removables paths)
           else do
             let fileUid = fileOwner status
                 fileGid = fileGroup status
@@ -278,18 +288,16 @@ rm options exitCode uid removablePaths (path:paths) = do
             if needRemove
               then do
                 when (verbose options) $ putStrLn path
-                rm options exitCode uid ((path, status):removablePaths) paths
-              else rm options exitCode uid removablePaths paths
+                rm options exitCode uid (fileInfo:removables) paths
+              else rm options exitCode uid removables paths
 
-
-remove :: [File] -> IO ExitCode
-remove files = do
-  let (paths, statuses) = foldl (\(paths, statuses) (path, status) -> (path:paths, status:statuses)) ([], []) files
+remove :: [FileInfo] -> IO ExitCode
+remove fileInfos = do
+  let (paths, isDeadLinks, mStatuses) = foldl (\(paths', isDeadLinks', mStatuses') (path, isDeadLink, mStatus) -> (path:paths', isDeadLink:isDeadLinks', mStatus:mStatuses')) ([], [], []) fileInfos
   absolutePaths <- mapM absolutize paths
-  (normals, specials) <- foldM filterSpecialFiles ([], []) (zip absolutePaths statuses)
+  (normals, specials) <- foldM filterSpecialFiles ([], []) (zip3 absolutePaths isDeadLinks mStatuses)
   unless (null specials) (moveToTrash specials)
-  if null normals then return ExitSuccess else executeScript $ createScript $ map fst normals
-
+  if null normals then return ExitSuccess else executeScript $ createScript $ map fst3 normals
 
 executeScript :: String -> IO ExitCode
 executeScript script = do
@@ -303,7 +311,6 @@ executeScript script = do
   hClose stdIn
   waitForProcess ph
 
-
 createScript :: [FilePath] -> String
 createScript paths = concat
   [ "set l to {}\n"
@@ -314,7 +321,6 @@ createScript paths = concat
   , "return"
   ]
 
-
 isAgree :: String -> FilePath -> IO Bool
 isAgree message path = do
   putStr $ message ++ path ++ "? "
@@ -322,30 +328,16 @@ isAgree message path = do
   input <- getLine
   return $ not (null input) && toUpper (head input) == 'Y'
 
-
-filterSpecialFiles :: ([File], [File]) -> File -> IO ([File], [File])
-filterSpecialFiles (normals, specials) file = do
-  isSpecial <- isSpecialFile file
-  if isSpecial
-    then return (normals, file:specials)
-    else return (file:normals, specials)
-
-
-isSpecialFile :: File -> IO Bool
-isSpecialFile (path, status) = do
-  isSymbolicLink <- pathIsSymbolicLink path
-  return $ isSymbolicLink
-    || isNamedPipe status
-    || isSocket status
-    || isCharacterDevice status
-    || isBlockDevice status
-
+filterSpecialFiles :: ([FileInfo], [FileInfo]) -> FileInfo -> IO ([FileInfo], [FileInfo])
+filterSpecialFiles (normals, specials) fileInfo =
+  if isSpecialFile fileInfo
+    then return (normals, fileInfo:specials)
+    else return (fileInfo:normals, specials)
 
 makeMessage :: FileStatus -> UserID -> GroupID -> IO String
 makeMessage status uid gid = do
   userAndGroup <- makeUserAndGroupString uid gid
   return $ "override " ++ makePermissionString status ++ "  " ++ userAndGroup ++ " for "
-
 
 makePermissionString :: FileStatus -> String
 makePermissionString status =
@@ -372,7 +364,6 @@ makePermissionString status =
       then if isU || isG then 's' else if isO then 't' else a
       else if isU || isG then 'S' else if isO then 'T' else '-'
 
-
 makeUserAndGroupString :: UserID -> GroupID -> IO String
 makeUserAndGroupString uid gid = do
   passwdContents <- readFile "/etc/passwd"
@@ -384,14 +375,53 @@ makeUserAndGroupString uid gid = do
   searchIdName :: String -> [String] -> String
   searchIdName uidOrGid [] = uidOrGid
   searchIdName uidOrGid (('#':_):ss) = searchIdName uidOrGid ss
-  searchIdName uidOrGid (s:ss) = if id' == uidOrGid then name else searchIdName uidOrGid ss
+  searchIdName uidOrGid (s:ss) = if id' == uidOrGid then name' else searchIdName uidOrGid ss
    where
     splitted :: [T.Text]
     splitted = T.splitOn ":" $ T.pack s
     id' :: String
     id' = T.unpack $ splitted !! 2
-    name :: String
-    name = T.unpack $ head splitted
+    name' :: String
+    name' = T.unpack $ head splitted
+
+getFileInfo :: FilePath -> IO FileInfo
+getFileInfo path = do
+  fileExists <- isPathExists path
+  if fileExists == NotExists
+    then return (path, fileExists, Nothing)
+    else do
+      status <- getSymbolicLinkStatus path
+      return (path, fileExists, Just status)
+
+isSpecialFile :: FileInfo -> Bool
+isSpecialFile (_, NotExists, _) = False
+isSpecialFile (_, DeadLink, _) = True
+isSpecialFile (_, Exists, Just status) = isSymbolicLink status
+  || isNamedPipe status
+  || isSocket status
+  || isCharacterDevice status
+  || isBlockDevice status
+
+isPathExists :: FilePath -> IO FileExists
+isPathExists path = do
+  rc <- withCString path $ \cpath ->
+    [C.block| int {
+      struct stat lstat_info;
+      int fd;
+      if (lstat($(char *cpath), &lstat_info) == -1) {
+          return 0;  // not exists
+      }
+      fd = open($(char *cpath), O_RDONLY);
+      if (fd == -1) {
+          return 1;  // dead link
+      }
+      close(fd);
+      return 2;  // exists
+    } |]
+  return $ case rc of
+    0 -> NotExists
+    1 -> DeadLink
+    2 -> Exists
 
 run :: IO ()
 run = do
