@@ -7,10 +7,20 @@ All notable changes to this project will be documented in this file.
 #### Added
 
 - add tests
-- add .travis.yml
 - add man manual
 
 #### Changed
+
+## 1.0.0.1
+
+#### Changed
+
+- add .travis.yml
+- format source code
+- fix some warning of hlint
+- update LTS to 14.27
+- update .gitignore
+- add hie.yaml for Haskell IDE Engine
 
 ## 1.0.0.0
 

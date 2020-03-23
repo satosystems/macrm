@@ -1,10 +1,10 @@
 name: macrm
-version: 1.0.0.0
+version: 1.0.0.1
 github: "satosystems/macrm"
 license: BSD3
 author: "Satoshi Ogata"
 maintainer: "satosystems@gmail.com"
-copyright: "(c) 2018 Satoshi Ogata"
+copyright: "(c) 2018-2020 Satoshi Ogata"
 
 extra-source-files:
   - README.md
