@@ -45,6 +45,7 @@ import           System.Console.CmdArgs         ( (&=)
                                                 , help
                                                 , name
                                                 , noAtExpand
+                                                , program
                                                 , summary
                                                 , typ
                                                 )
@@ -121,7 +122,7 @@ data FileExists = NotExists | DeadLink | Exists deriving (Eq, Show)
 
 type FileInfo = (FilePath, FileExists, Maybe FileStatus)
 
-data Macrm = Macrm
+data Options = Options
   { directory :: Bool
   , force :: Bool
   , interactive :: Bool
@@ -133,9 +134,9 @@ data Macrm = Macrm
   , files :: [FilePath]
   } deriving (Data, Show, Typeable)
 
-macrm :: Macrm
-macrm =
-  Macrm
+getOptions :: Options
+getOptions =
+  Options
       { directory   = False
         &= help "Attempt to remove directories as well as other types of files."
       , force       = False &= help
@@ -175,6 +176,7 @@ macrm =
       , files       = [] &= args &= typ "FILES/DIRS"
       }
     &= summary ("macrm " ++ showVersion version)
+    &= program "macrm"
     &= noAtExpand
 
 absolutize :: FilePath -> IO FilePath
@@ -227,8 +229,8 @@ getCurrentDayOfTime = do
 changeResolution :: (HasResolution a, HasResolution b) => Fixed a -> Fixed b
 changeResolution = fromRational . toRational
 
-rm :: Macrm -> ExitCode -> UserID -> [FileInfo] -> [FilePath] -> IO ExitCode
-rm (Macrm False False False False False False False False []) ExitSuccess _ [] []
+rm :: Options -> ExitCode -> UserID -> [FileInfo] -> [FilePath] -> IO ExitCode
+rm (Options False False False False False False False False []) ExitSuccess _ [] []
   = do
     hPutStrLn stderr
               "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
@@ -447,7 +449,7 @@ isPathExists path = do
 
 run :: IO ()
 run = do
-  options <- cmdArgs macrm
+  options <- cmdArgs getOptions
   uid     <- getRealUserID
   ec      <- rm options ExitSuccess uid [] $ files options
   exitWith ec
