@@ -34,6 +34,11 @@ import           Data.Tuple.Utils               ( fst3
                                                 )
 import           Data.Version                   ( showVersion )
 import           Foreign.C.String               ( withCString )
+import           GitHash                        ( GitInfo
+                                                , giDirty
+                                                , giHash
+                                                , tGitInfoCwd
+                                                )
 import qualified Language.C.Inline             as C
 import           Paths_macrm                    ( version )
 import           System.Console.CmdArgs         ( (&=)
@@ -175,7 +180,7 @@ getOptions =
         )
       , files       = [] &= args &= typ "FILES/DIRS"
       }
-    &= summary ("macrm " ++ showVersion version)
+    &= summary versionString
     &= program "macrm"
     &= noAtExpand
 
@@ -446,6 +451,18 @@ isPathExists path = do
     1 -> DeadLink
     2 -> Exists
     _ -> undefined -- never happen
+
+gitInfo :: GitInfo
+gitInfo = $$(tGitInfoCwd)
+
+versionString :: String
+versionString = concat
+  [ "macrm ver "
+  , showVersion version
+  , " based on Git commit "
+  , giHash gitInfo
+  , if giDirty gitInfo then " Dirty" else " Clean"
+  ]
 
 run :: IO ()
 run = do
