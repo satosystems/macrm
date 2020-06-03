@@ -11,6 +11,14 @@ All notable changes to this project will be documented in this file.
 
 #### Changed
 
+## 1.0.0.2
+
+#### Changed
+
+- update LTS to 15.15
+- improve version string
+- refactor a bit
+
 ## 1.0.0.1
 
 #### Changed
