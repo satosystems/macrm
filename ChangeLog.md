@@ -11,6 +11,13 @@ All notable changes to this project will be documented in this file.
 
 #### Changed
 
+## 1.0.0.3
+
+#### Changed
+
+- update LTS to 16.17
+- update README.md
+
 ## 1.0.0.2
 
 #### Changed
