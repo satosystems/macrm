@@ -1,5 +1,5 @@
 name: macrm
-version: 1.0.0.1
+version: 1.0.0.2
 github: "satosystems/macrm"
 license: BSD3
 author: "Satoshi Ogata"
@@ -34,6 +34,7 @@ library:
     - directory
     - exceptions
     - filepath
+    - githash
     - inline-c
     - process
     - text

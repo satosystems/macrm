@@ -34,6 +34,11 @@ import           Data.Tuple.Utils               ( fst3
                                                 )
 import           Data.Version                   ( showVersion )
 import           Foreign.C.String               ( withCString )
+import           GitHash                        ( GitInfo
+                                                , giDirty
+                                                , giHash
+                                                , tGitInfoCwd
+                                                )
 import qualified Language.C.Inline             as C
 import           Paths_macrm                    ( version )
 import           System.Console.CmdArgs         ( (&=)
@@ -45,6 +50,7 @@ import           System.Console.CmdArgs         ( (&=)
                                                 , help
                                                 , name
                                                 , noAtExpand
+                                                , program
                                                 , summary
                                                 , typ
                                                 )
@@ -121,7 +127,7 @@ data FileExists = NotExists | DeadLink | Exists deriving (Eq, Show)
 
 type FileInfo = (FilePath, FileExists, Maybe FileStatus)
 
-data Macrm = Macrm
+data Options = Options
   { directory :: Bool
   , force :: Bool
   , interactive :: Bool
@@ -133,9 +139,9 @@ data Macrm = Macrm
   , files :: [FilePath]
   } deriving (Data, Show, Typeable)
 
-macrm :: Macrm
-macrm =
-  Macrm
+getOptions :: Options
+getOptions =
+  Options
       { directory   = False
         &= help "Attempt to remove directories as well as other types of files."
       , force       = False &= help
@@ -174,7 +180,8 @@ macrm =
         )
       , files       = [] &= args &= typ "FILES/DIRS"
       }
-    &= summary ("macrm " ++ showVersion version)
+    &= summary versionString
+    &= program "macrm"
     &= noAtExpand
 
 absolutize :: FilePath -> IO FilePath
@@ -227,8 +234,8 @@ getCurrentDayOfTime = do
 changeResolution :: (HasResolution a, HasResolution b) => Fixed a -> Fixed b
 changeResolution = fromRational . toRational
 
-rm :: Macrm -> ExitCode -> UserID -> [FileInfo] -> [FilePath] -> IO ExitCode
-rm (Macrm False False False False False False False False []) ExitSuccess _ [] []
+rm :: Options -> ExitCode -> UserID -> [FileInfo] -> [FilePath] -> IO ExitCode
+rm (Options False False False False False False False False []) ExitSuccess _ [] []
   = do
     hPutStrLn stderr
               "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
@@ -445,9 +452,21 @@ isPathExists path = do
     2 -> Exists
     _ -> undefined -- never happen
 
+gitInfo :: GitInfo
+gitInfo = $$(tGitInfoCwd)
+
+versionString :: String
+versionString = concat
+  [ "macrm ver "
+  , showVersion version
+  , " based on Git commit "
+  , giHash gitInfo
+  , if giDirty gitInfo then " Dirty" else " Clean"
+  ]
+
 run :: IO ()
 run = do
-  options <- cmdArgs macrm
+  options <- cmdArgs getOptions
   uid     <- getRealUserID
   ec      <- rm options ExitSuccess uid [] $ files options
   exitWith ec
