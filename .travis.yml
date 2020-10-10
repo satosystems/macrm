@@ -1,0 +1,17 @@
+cache:
+  directories:
+    - $HOME/.stack
+
+matrix:
+  include:
+    - os: osx
+      before_install:
+        - curl -sSL https://get.haskellstack.org/ | sh
+
+before_script:
+  - uname -a
+  - stack --version
+  - stack build
+
+script:
+  - stack test
