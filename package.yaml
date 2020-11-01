@@ -66,4 +66,13 @@ tests:
       - -Wall
       - -Werror
     dependencies:
+      - MissingH >= 1.4.3.0 && < 2
+      - bytestring <= 0.10.10.1 && < 1
+      - directory <= 1.3.6.0 && < 2
+      - filepath <= 1.4.2.1 && < 2
+      - hspec >= 2.7.4 && < 3
       - macrm
+      - main-tester <= 0.2.0.1 && < 1
+      - process <= 1.6.9.0 && < 2
+      - unix <= 2.7.2.2 && < 3
+      - uuid <= 1.3.13 && < 2
