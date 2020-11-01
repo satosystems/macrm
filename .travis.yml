@@ -11,7 +11,7 @@ matrix:
 before_script:
   - uname -a
   - stack --version
-  - stack build
+  - stack build --fast
 
 script:
-  - stack test
+  - stack test --coverage
