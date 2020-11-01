@@ -1,4 +1,6 @@
-.stack-work/
-macrm.cabal
-stack.yaml.lock
 *~
+.stack-work/
+.test/
+macrm.cabal
+macrm.tix
+stack.yaml.lock
