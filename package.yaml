@@ -51,6 +51,7 @@ executables:
       - -with-rtsopts=-N
       - -Wall
       - -Werror
+      - -optP-Wno-nonportable-include-path
     dependencies:
       - macrm
 
