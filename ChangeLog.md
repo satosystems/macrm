@@ -6,10 +6,24 @@ All notable changes to this project will be documented in this file.
 
 #### Added
 
-- add tests
 - add man manual
 
 #### Changed
+
+## 1.0.0.4
+
+#### Added
+
+- add tests
+
+#### Changed
+
+- fix some bugs
+- add Makefile
+- add .editorconfig
+- add hie.yaml
+- update .travis.yml
+- refactor a bit
 
 ## 1.0.0.3
 
