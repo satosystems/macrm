@@ -1,5 +1,5 @@
 name: macrm
-version: 1.0.0.4
+version: 1.0.0.5
 github: "satosystems/macrm"
 license: BSD3
 author: "Satoshi Ogata"
@@ -7,13 +7,16 @@ maintainer: "satosystems@gmail.com"
 copyright: "(c) 2018-2020 Satoshi Ogata"
 
 extra-source-files:
-  - README.md
+  - .editorconfig
+  - .gitignore
   - ChangeLog.md
   - Makefile
+  - README.md
+  - hie.yaml
 
 # Metadata used when publishing your package
-synopsis: Alternative rm command for macOS that throws
-  files/directories away to the system trash
+synopsis: Alternative rm command for macOS that remove files/dirs to the system
+  trash
 category: Program
 
 # To avoid duplicated efforts in documentation and dealing with the
@@ -50,7 +53,6 @@ executables:
       - -rtsopts
       - -with-rtsopts=-N
       - -Wall
-      - -Werror
       - -optP-Wno-nonportable-include-path
     dependencies:
       - macrm
@@ -64,7 +66,6 @@ tests:
       - -rtsopts
       - -with-rtsopts=-N
       - -Wall
-      - -Werror
     dependencies:
       - MissingH             >= 1.4.3 && < 1.5
       - bytestring           >= 0.10.10 && < 0.11

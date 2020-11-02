@@ -10,6 +10,12 @@ All notable changes to this project will be documented in this file.
 
 #### Changed
 
+## 1.0.0.5
+
+#### Changed
+
+- fix for `stack sdist`
+
 ## 1.0.0.4
 
 #### Added
