@@ -61,16 +61,14 @@ import           System.Exit                    ( ExitCode
                                                 , exitWith
                                                 )
 import           System.Directory               ( doesDirectoryExist
-                                                , doesPathExist
                                                 , getHomeDirectory
+                                                , listDirectory
                                                 , renameDirectory
                                                 , renameFile
                                                 )
-import           System.FilePath                ( addTrailingPathSeparator
-                                                , normalise
-                                                )
 import           System.IO                      ( hClose
                                                 , hFlush
+                                                , hGetContents
                                                 , hPutStr
                                                 , hPutStrLn
                                                 , stderr
@@ -185,38 +183,38 @@ getOptions =
     &= noAtExpand
 
 absolutize :: FilePath -> IO FilePath
-absolutize ('~' : cs) = do
-  homePath <- getHomeDirectory
-  return $ normalise $ addTrailingPathSeparator homePath ++ cs
 absolutize path = fromJust . guess_dotdot <$> absolute_path path
 
 moveToTrash :: [FileInfo] -> IO ()
-moveToTrash fileInfos = do
-  pairs <- mapM makePairs fileInfos
-  mapM_ move pairs
+moveToTrash []               = return ()
+moveToTrash (fileInfo : fis) = do
+  pair <- makePair fileInfo
+  move pair
+  moveToTrash fis
  where
-  makePairs :: FileInfo -> IO (FilePath, FilePath)
-  makePairs (path, _, _) = do
-    removedPath <- getRemovedPath $ T.unpack $ last $ T.split (== '/') $ T.pack
-      path
+  makePair :: FileInfo -> IO (FilePath, FilePath)
+  makePair (path, _, _) = do
+    let fileOrDirName = T.unpack . last . T.splitOn "/" . T.pack $ path
+    removedPath <- getRemovedPath fileOrDirName
     return (path, removedPath)
   move :: (FilePath, FilePath) -> IO ()
-  move (old, new) = ifM (doesDirectoryExist old)
-                        (renameDirectory old new)
-                        (renameFile old new)
+  move (from, to) = ifM (doesDirectoryExist from)
+                        (renameDirectory from to)
+                        (renameFile from to)
 
 getRemovedPath :: FilePath -> IO FilePath
-getRemovedPath filename = do
+getRemovedPath fileOrDirName = do
   dayOfTime <- getCurrentDayOfTime
-  homePath  <- getHomeDirectory
-  let trashPath = homePath ++ "/.Trash/"
-  searchRemovedPath (trashPath ++ filename) $ ' ' : dayOfTime
+  searchRemovedPath fileOrDirName $ ' ' : dayOfTime
 
 searchRemovedPath :: FilePath -> String -> IO FilePath
-searchRemovedPath removedPath suffix = ifM
-  (doesPathExist removedPath)
-  (searchRemovedPath (removedPath ++ suffix) suffix)
-  (return removedPath)
+searchRemovedPath fileOrDirName suffix = do
+  homePath <- getHomeDirectory
+  let trashPath = homePath ++ "/.Trash/"
+  removed <- listDirectory trashPath
+  if fileOrDirName `elem` removed
+    then searchRemovedPath (fileOrDirName ++ suffix) suffix
+    else return $ trashPath ++ fileOrDirName
 
 getCurrentDayOfTime :: IO String
 getCurrentDayOfTime = do
@@ -255,32 +253,43 @@ rm options exitCode uid removables (path : paths) = do
         hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
         rm options (ExitFailure 1) uid removables paths
     else do
-      let status = fromJust $ thd3 fileInfo
-          isDir  = snd3 fileInfo == Exists && isDirectory status
-      if isDir && not (recursive options || recursive' options)
-        then do
-          hPutStrLn stderr $ "macrm: " ++ path ++ ": is a directory"
-          rm options (ExitFailure 1) uid removables paths
+      let status        = fromJust . thd3 $ fileInfo
+      let isDir         = snd3 fileInfo == Exists && isDirectory status
+      let withRecursive = recursive options || recursive' options
+      let withDirectory = directory options
+      isNotEmpty <- if isDir
+        then not . null <$> listDirectory path
+        else return False
+      if isDir
+           && not withRecursive
+           && (not withDirectory || withDirectory && isNotEmpty)
+        then if withDirectory && isNotEmpty
+          then do
+            hPutStrLn stderr $ "macrm: " ++ path ++ ": Directory not empty"
+            rm options (ExitFailure 1) uid removables paths
+          else do
+            hPutStrLn stderr $ "macrm: " ++ path ++ ": is a directory"
+            rm options (ExitFailure 1) uid removables paths
         else if interactive options
-          then ifM
-            (isAgree
-              (if isDir then "examine files in directory " else "remove ")
-              path
-            )
-            (do
-              when (verbose options) $ putStrLn path
-              rm options exitCode uid (fileInfo : removables) paths
-            )
-            (rm options exitCode uid removables paths)
+          then do
+            let message = case (isDir, withRecursive) of
+                  (True, True) -> "examine files in directory "
+                  _            -> "remove "
+            agreement <- getAgreement message path
+            if agreement
+              then do
+                when (verbose options) $ putStrLn path
+                rm options exitCode uid (fileInfo : removables) paths
+              else rm options exitCode uid removables paths
           else do
             let fileUid = fileOwner status
                 fileGid = fileGroup status
             mMessage <- if uid == fileUid
               then return Nothing
-              else Just <$> makeMessage status fileUid fileGid
+              else Just <$> makeMessage fileInfo fileUid fileGid
             needRemove <- if isNothing mMessage
               then return True
-              else isAgree (fromJust mMessage) path
+              else getAgreement (fromJust mMessage) path
             if needRemove
               then do
                 when (verbose options) $ putStrLn path
@@ -296,13 +305,12 @@ remove fileInfos = do
         ([], [], [])
         fileInfos
   absolutePaths       <- mapM absolutize paths
-  (normals, specials) <- foldM filterSpecialFiles
-                               ([], [])
-                               (zip3 absolutePaths isDeadLinks mStatuses)
-  unless (null specials) (moveToTrash specials)
+  (normals, specials) <- foldM filterSpecialFiles ([], [])
+    $ zip3 absolutePaths isDeadLinks mStatuses
+  unless (null specials) $ moveToTrash . reverse $ specials
   if null normals
     then return ExitSuccess
-    else executeScript $ createScript $ map fst3 normals
+    else executeScript . createScript . map fst3 . reverse $ normals
 
 executeScript :: String -> IO ExitCode
 executeScript script = do
@@ -328,8 +336,8 @@ createScript paths = concat
   , "return"
   ]
 
-isAgree :: String -> FilePath -> IO Bool
-isAgree message path = do
+getAgreement :: String -> FilePath -> IO Bool
+getAgreement message path = do
   putStr $ message ++ path ++ "? "
   hFlush stdout
   input <- getLine
@@ -341,15 +349,33 @@ filterSpecialFiles (normals, specials) fileInfo = if isSpecialFile fileInfo
   then return (normals, fileInfo : specials)
   else return (fileInfo : normals, specials)
 
-makeMessage :: FileStatus -> UserID -> GroupID -> IO String
-makeMessage status uid gid = do
+getFileFlags :: FilePath -> IO (Maybe String)
+getFileFlags path = do
+  (_, Just stdOut, _, ph) <- createProcess (proc "/bin/ls" ["-lO", path])
+    { std_in  = CreatePipe
+    , std_out = CreatePipe
+    , std_err = CreatePipe
+    }
+  _      <- waitForProcess ph
+  output <- hGetContents stdOut
+  if null output
+    then return Nothing
+    else
+      let flags = T.unpack $ (T.splitOn " " . T.pack $ output) !! 7
+      in  return $ Just flags
+
+makeMessage :: FileInfo -> UserID -> GroupID -> IO String
+makeMessage (path, _, Just status) uid gid = do
   userAndGroup <- makeUserAndGroupString uid gid
+  mFlags       <- getFileFlags path
   return
     $  "override "
     ++ makePermissionString status
     ++ "  "
     ++ userAndGroup
+    ++ maybe "" (" " ++) mFlags
     ++ " for "
+makeMessage _ _ _ = undefined -- never happen
 
 makePermissionString :: FileStatus -> String
 makePermissionString status =
@@ -405,11 +431,11 @@ makeUserAndGroupString uid gid = do
     else searchIdName uidOrGid ss
    where
     splitted :: [T.Text]
-    splitted = T.splitOn ":" $ T.pack s
+    splitted = T.splitOn ":" . T.pack $ s
     id' :: String
     id' = T.unpack $ splitted !! 2
     name' :: String
-    name' = T.unpack $ head splitted
+    name' = T.unpack . head $ splitted
 
 getFileInfo :: FilePath -> IO FileInfo
 getFileInfo path = do
@@ -468,5 +494,5 @@ run :: IO ()
 run = do
   options <- cmdArgs getOptions
   uid     <- getRealUserID
-  ec      <- rm options ExitSuccess uid [] $ files options
+  ec      <- rm options ExitSuccess uid [] . files $ options
   exitWith ec

@@ -1,2 +1,13 @@
 cradle:
   stack:
+    - path: "./src"
+      component: "macrm:lib"
+
+    - path: "./app/Main.hs"
+      component: "macrm:exe:macrm"
+
+    - path: "./app/Paths_macrm.hs"
+      component: "macrm:exe:macrm"
+
+    - path: "./test"
+      component: "macrm:test:test"

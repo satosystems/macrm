@@ -1,5 +1,5 @@
 name: macrm
-version: 1.0.0.3
+version: 1.0.0.4
 github: "satosystems/macrm"
 license: BSD3
 author: "Satoshi Ogata"
@@ -9,6 +9,7 @@ copyright: "(c) 2018-2020 Satoshi Ogata"
 extra-source-files:
   - README.md
   - ChangeLog.md
+  - Makefile
 
 # Metadata used when publishing your package
 synopsis: Alternative rm command for macOS that throws
@@ -28,18 +29,17 @@ library:
   other-modules:
     - Paths_macrm
   dependencies:
-    - MissingH
-    - cmdargs
-    - cond
-    - directory
-    - exceptions
-    - filepath
-    - githash
-    - inline-c
-    - process
-    - text
-    - time
-    - unix
+    - MissingH             >= 1.4.3 && < 1.5
+    - cmdargs              >= 0.10.20 && < 0.11
+    - cond                 >= 0.4.1 && < 0.5
+    - directory            >= 1.3.6 && < 1.4
+    - exceptions           >= 0.10.4 && < 0.11
+    - githash              >= 0.1.4 && < 0.2
+    - inline-c             >= 0.9.1 && < 0.10
+    - process              >= 1.6.9 && < 1.7
+    - text                 >= 1.2.4 && < 1.3
+    - time                 >= 1.9.3 && < 1.10
+    - unix                 >= 2.7.2 && < 2.8
 
 executables:
   macrm:
@@ -51,6 +51,7 @@ executables:
       - -with-rtsopts=-N
       - -Wall
       - -Werror
+      - -optP-Wno-nonportable-include-path
     dependencies:
       - macrm
 
@@ -65,4 +66,13 @@ tests:
       - -Wall
       - -Werror
     dependencies:
+      - MissingH             >= 1.4.3 && < 1.5
+      - bytestring           >= 0.10.10 && < 0.11
+      - directory            >= 1.3.6 && < 1.4
+      - filepath             >= 1.4.2 && < 1.5
+      - hspec                >= 2.7.4 && < 2.8
       - macrm
+      - main-tester          >= 0.2.0 && < 0.3
+      - process              >= 1.6.9 && < 1.7
+      - unix                 >= 2.7.2 && < 2.8
+      - uuid                 >= 1.3.13 && < 1.4
