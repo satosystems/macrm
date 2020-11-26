@@ -1,5 +1,5 @@
 name: macrm
-version: 1.0.0.5
+version: 1.0.0.6
 github: "satosystems/macrm"
 license: BSD3
 author: "Satoshi Ogata"
@@ -9,10 +9,12 @@ copyright: "(c) 2018-2020 Satoshi Ogata"
 extra-source-files:
   - .editorconfig
   - .gitignore
+  - .travis.yml
   - ChangeLog.md
   - Makefile
   - README.md
   - hie.yaml
+  - share/man/man1/macrm.1.md
 
 # Metadata used when publishing your package
 synopsis: Alternative rm command for macOS that remove files/dirs to the system
