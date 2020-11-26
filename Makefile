@@ -44,6 +44,10 @@ lint:
 installdirs:
 	mkdir -p $(HOME)/.local/bin
 
+.PHONY: man
+man: share/man/man1/macrm.1
+	man -M share/man macrm
+
 .PHONY: pre-dist
 pre-dist: /usr/local/Homebrew/Library/Taps/satosystems/homebrew-tap/macrm.rb
 	@if [ -f "$^" ]; then \
@@ -64,6 +68,12 @@ pre-dist: /usr/local/Homebrew/Library/Taps/satosystems/homebrew-tap/macrm.rb
 
 hie.yaml: $(SRCS)
 	cd $(MAKEFILE_DIR) && type gen-hie 2> /dev/null && gen-hie > $@ || stack install implicit-hie && make -f $(MAKEFILE_DIR)$(MAKEFILE) $@
+
+share/man/man1/macrm.1: share/man/man1/macrm.1.md package.yaml
+	$(eval VERSION := $(shell (cat package.yaml | grep ^version: | awk '{print $$2}')))
+	cat $^ | sed "s/__VERSION__/$(VERSION)/" > temp.md
+	pandoc temp.md -s -t man -o $@
+	rm temp.md
 
 /usr/local/Homebrew/Library/Taps/satosystems/homebrew-tap/macrm.rb: /usr/local/Homebrew/Library/Taps/satosystems/homebrew-tap
 

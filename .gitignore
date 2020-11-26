@@ -4,4 +4,5 @@
 dist-newstyle/
 macrm.cabal
 macrm.tix
+share/man/man1/macrm.1
 stack.yaml.lock
