@@ -44,13 +44,17 @@ lint:
 installdirs:
 	mkdir -p $(HOME)/.local/bin
 
+.PHONY: man
+man: share/man/man1/macrm.1
+	man -M share/man macrm
+
 .PHONY: pre-dist
 pre-dist: /usr/local/Homebrew/Library/Taps/satosystems/homebrew-tap/macrm.rb
 	@if [ -f "$^" ]; then \
 		$(eval CURRENT_VERSION := $(shell (cat $^ | grep url | awk -F'/' '{print $$8}'))) \
 		$(eval NEW_VERSION := $(shell git tag | tail -n 1)) \
 		if [ "$(CURRENT_VERSION)" != "$(NEW_VERSION)" ]; then \
-			$(eval URL := $(shell echo "https://github.com/satosystems/macrm/releases/download/$(NEW_VERSION)/macrm")) \
+			$(eval URL := $(shell echo "https://github.com/satosystems/macrm/releases/download/$(NEW_VERSION)/macrm.tar.gz")) \
 			if [ "`curl -I $(URL) | head -n 1 | awk -F' ' '{print $$2}'`" != "404" ]; then \
 				$(eval ESCAPED_URL := $(shell echo "$(URL)" | sed -E 's/\//\\\//g')) \
 				curl -L -o "$(TMPDIR)macrm" "$(URL)"; \
@@ -64,6 +68,19 @@ pre-dist: /usr/local/Homebrew/Library/Taps/satosystems/homebrew-tap/macrm.rb
 
 hie.yaml: $(SRCS)
 	cd $(MAKEFILE_DIR) && type gen-hie 2> /dev/null && gen-hie > $@ || stack install implicit-hie && make -f $(MAKEFILE_DIR)$(MAKEFILE) $@
+
+share/man/man1/macrm.1: share/man/man1/macrm.1.md package.yaml
+	$(eval VERSION := $(shell (cat package.yaml | grep ^version: | awk '{print $$2}')))
+	cat $^ | sed "s/__VERSION__/$(VERSION)/" > temp.md
+	pandoc temp.md -s -t man -o $@
+	rm temp.md
+
+macrm.tar.gz: share/man/man1/macrm.1 build
+	$(eval BIN := $(shell (find .stack-work/dist -type f -name macrm)))
+	mkdir -p .tmp
+	cp $(BIN) $< .tmp
+	cd .tmp && tar cvfz ../$@ macrm macrm.1
+	rm -r .tmp
 
 /usr/local/Homebrew/Library/Taps/satosystems/homebrew-tap/macrm.rb: /usr/local/Homebrew/Library/Taps/satosystems/homebrew-tap
 
