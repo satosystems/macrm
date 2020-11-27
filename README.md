@@ -8,6 +8,14 @@ That is not just a move, of cause it is possible to undo.
 
 ## How to install
 
+### Install via Homebrew (Recommended)
+
+```shell-session
+$ brew install satosystems/tap/macrm
+...
+$
+```
+
 ### Install via self build
 
 ```shell-session
@@ -16,14 +24,6 @@ $ git clone https://github.com/satosystems/macrm.git
 $ cd macrm
 ...
 $ make install
-...
-$
-```
-
-### Install via Homebrew
-
-```shell-session
-$ brew install satosystems/tap/macrm
 ...
 $
 ```
