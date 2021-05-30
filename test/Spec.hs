@@ -132,8 +132,17 @@ createTestFiles = do
 removeTestFiles :: TestFiles -> IO ()
 removeTestFiles = removeDirectoryRecursive . relativePath . parentDir
 
-spec_run :: FilePath -> Spec
-spec_run trashPath = describe "run" $ do
+createSpecifiedFile :: String -> IO (Path, Path)
+createSpecifiedFile name = do
+  baseDir <- createTestDir ".test"
+  let baseDirPath = relativePath baseDir
+  let path = addTrailingPathSeparator baseDirPath ++ name
+  writeFile path ""
+  filePath <- Path name path <$> absolutize path
+  return (baseDir, filePath)
+
+spec :: FilePath -> Spec
+spec trashPath = describe "run" $ do
   it "shows usage with no options" $ do
     pr <- withArgs [] $ captureProcessResult run
     prStdout pr `shouldBe` ""
@@ -734,8 +743,19 @@ spec_run trashPath = describe "run" $ do
     prExitCode pr `shouldBe` ExitSuccess
     (isNothing . prException) pr `shouldBe` True
 
+bugs :: FilePath -> Spec
+bugs trashPath = describe "bugs" $ do
+  it "remove '\"' file" $ do
+    (baseDir, path) <- createSpecifiedFile "\""
+    pr <- withArgs [relativePath path] $ captureProcessResult run
+    prExitCode pr `shouldBe` ExitSuccess
+    let removedFilePath = addTrailingPathSeparator trashPath ++ "\""
+    doesPathExist removedFilePath `shouldReturn` True
+    removeDirectoryRecursive $ relativePath baseDir
+
 main :: IO ()
 main = do
   homePath <- getEnv "HOME"
   let trashPath = homePath ++ "/.Trash"
-  hspec $ spec_run trashPath
+  hspec $ spec trashPath
+  hspec $ bugs trashPath

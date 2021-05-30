@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - N/A
 
+## [1.0.0.7]
+
+#### Changed
+
+- fix a bug that is cannot remove file that file name includes '"'
+
 ## [1.0.0.6]
 
 #### Added
@@ -74,7 +80,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - implement first version
 
-[Unreleased]: https://github.com/satosystems/macrm/compare/v1.0.0.6...HEAD
+[Unreleased]: https://github.com/satosystems/macrm/compare/v1.0.0.7...HEAD
+[1.0.0.7]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.7
 [1.0.0.6]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.6
 [1.0.0.5]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.5
 [1.0.0.4]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.4
