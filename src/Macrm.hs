@@ -17,6 +17,7 @@ import           Data.Fixed                     ( Fixed
                                                 , showFixed
                                                 )
 import           Data.Int                       ( Int32 )
+import           Data.List.Utils                ( replace )
 import           Data.Maybe                     ( fromJust
                                                 , isNothing
                                                 )
@@ -328,7 +329,7 @@ createScript :: [FilePath] -> String
 createScript paths = concat
   [ "set l to {}\n"
   , concatMap
-    (\path -> "set end of l to posix file \"" ++ path ++ "\" as alias\n")
+    (\path -> "set end of l to posix file \"" ++ (replace "\"" "\\\"" path) ++ "\" as alias\n")
     paths
   , "tell application \"Finder\"\n"
   , "delete l\n"
