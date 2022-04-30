@@ -461,18 +461,18 @@ isSpecialFile (_, Exists, Just status) =
 isPathExists :: FilePath -> IO FileExists
 isPathExists path = do
   rc <- withCString path $ \cpath -> [C.block| int {
-      struct stat lstat_info;
-      int fd;
-      if (lstat($(char *cpath), &lstat_info) == -1) {
-          return 0;  // not exists
-      }
-      fd = open($(char *cpath), O_RDONLY);
-      if (fd == -1) {
-          return 1;  // dead link
-      }
-      close(fd);
-      return 2;  // exists
-    } |]
+    struct stat lstat_info;
+    int fd;
+    if (lstat($(char *cpath), &lstat_info) == -1) {
+      return 0; // not exists
+    }
+    fd = open($(char *cpath), O_RDONLY);
+    if (fd == -1) {
+      return 1; // dead link
+    }
+    close(fd);
+    return 2; // exists
+  } |]
   return $ case rc of
     0 -> NotExists
     1 -> DeadLink
