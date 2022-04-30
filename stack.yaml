@@ -18,7 +18,7 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver: lts-17.13
+resolver: lts-19.5
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -38,8 +38,11 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
-# extra-deps: []
-
+extra-deps:
+  - MissingH-1.4.3.1@sha256:6e1b7a0504e9c0faca2ea938b9a7e0a8c8293e489399f9c4c8eb6098311483f3,4774
+  - hspec-2.7.10@sha256:c9e82c90086acebac576552a06f3cabd249bba048edd1667c7fae0b1313d5bce,1712
+  - hspec-core-2.7.10@sha256:2aba6ea126442b29e8183ab27f1c811706b19b1d83b02f193a896f6fc1589d13,4621
+  - hspec-discover-2.7.10@sha256:d08bf5dd785629f589571477d9beb7cd91529471bd89f39517c1cb4b9b38160f,2184
 # Override default flag values for local packages and extra-deps
 # flags: {}
 
