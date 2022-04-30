@@ -332,7 +332,7 @@ createScript paths = concat
   , concatMap
     (\path ->
       "set end of l to posix file \""
-        ++ (replace "\"" "\\\"" path)
+        ++ replace "\"" "\\\"" path
         ++ "\" as alias\n"
     )
     paths
