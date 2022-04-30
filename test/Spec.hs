@@ -8,29 +8,6 @@ import           Data.Maybe                     ( isNothing )
 import           Data.UUID                      ( toString )
 import           Data.UUID.V4                   ( nextRandom )
 import           Data.Version                   ( showVersion )
-import           Test.Hspec                     ( hspec
-                                                , describe
-                                                , it
-                                                , shouldBe
-                                                , shouldContain
-                                                , shouldReturn
-                                                , shouldSatisfy
-                                                , Spec
-                                                )
-import           Test.Main                      ( withArgs
-                                                , ExitCode
-                                                  ( ExitSuccess
-                                                  , ExitFailure
-                                                  )
-                                                , captureProcessResult
-                                                , withStdin
-                                                , ProcessResult
-                                                  ( prStdout
-                                                  , prStderr
-                                                  , prExitCode
-                                                  , prException
-                                                  )
-                                                )
 import           System.Directory               ( createDirectory
                                                 , createDirectoryIfMissing
                                                 , doesPathExist
@@ -43,10 +20,33 @@ import           System.Environment             ( getEnv )
 import           System.FilePath                ( addTrailingPathSeparator )
 import           System.IO                      ( hGetContents )
 import           System.Posix.Files             ( createSymbolicLink )
-import           System.Process                 ( createProcess
-                                                , proc
-                                                , CreateProcess(std_out)
+import           System.Process                 ( CreateProcess(std_out)
                                                 , StdStream(CreatePipe)
+                                                , createProcess
+                                                , proc
+                                                )
+import           Test.Hspec                     ( Spec
+                                                , describe
+                                                , hspec
+                                                , it
+                                                , shouldBe
+                                                , shouldContain
+                                                , shouldReturn
+                                                , shouldSatisfy
+                                                )
+import           Test.Main                      ( ExitCode
+                                                  ( ExitFailure
+                                                  , ExitSuccess
+                                                  )
+                                                , ProcessResult
+                                                  ( prException
+                                                  , prExitCode
+                                                  , prStderr
+                                                  , prStdout
+                                                  )
+                                                , captureProcessResult
+                                                , withArgs
+                                                , withStdin
                                                 )
 
 import           Macrm                          ( absolutize
@@ -56,18 +56,18 @@ import           Paths_macrm                    ( version )
 
 data Path = Path
   { fileOrDirName :: String
-  , relativePath :: FilePath
-  , absolutePath :: FilePath
+  , relativePath  :: FilePath
+  , absolutePath  :: FilePath
   }
 
 data TestFiles = TestFiles
-  { parentDir :: Path
-  , normalFiles :: [Path]
-  , notExistPaths :: [Path]
-  , emptyDirs :: [Path]
-  , notEmptyDirs :: [Path]
+  { parentDir         :: Path
+  , normalFiles       :: [Path]
+  , notExistPaths     :: [Path]
+  , emptyDirs         :: [Path]
+  , notEmptyDirs      :: [Path]
   , symbolicLinkFiles :: [Path]
-  , symbolicLinkDirs :: [Path]
+  , symbolicLinkDirs  :: [Path]
   , deadSymbolicLinks :: [Path]
   }
 
@@ -136,7 +136,7 @@ createSpecifiedFile :: String -> IO (Path, Path)
 createSpecifiedFile name = do
   baseDir <- createTestDir ".test"
   let baseDirPath = relativePath baseDir
-  let path = addTrailingPathSeparator baseDirPath ++ name
+  let path        = addTrailingPathSeparator baseDirPath ++ name
   writeFile path ""
   filePath <- Path name path <$> absolutize path
   return (baseDir, filePath)
@@ -747,7 +747,7 @@ bugs :: FilePath -> Spec
 bugs trashPath = describe "bugs" $ do
   it "remove '\"' file" $ do
     (baseDir, path) <- createSpecifiedFile "\""
-    pr <- withArgs [relativePath path] $ captureProcessResult run
+    pr              <- withArgs [relativePath path] $ captureProcessResult run
     prExitCode pr `shouldBe` ExitSuccess
     let removedFilePath = addTrailingPathSeparator trashPath ++ "\""
     doesPathExist removedFilePath `shouldReturn` True
