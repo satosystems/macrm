@@ -55,17 +55,17 @@ import           System.Console.CmdArgs         ( (&=)
                                                 , summary
                                                 , typ
                                                 )
-import           System.Exit                    ( ExitCode
-                                                  ( ExitFailure
-                                                  , ExitSuccess
-                                                  )
-                                                , exitWith
-                                                )
 import           System.Directory               ( doesDirectoryExist
                                                 , getHomeDirectory
                                                 , listDirectory
                                                 , renameDirectory
                                                 , renameFile
+                                                )
+import           System.Exit                    ( ExitCode
+                                                  ( ExitFailure
+                                                  , ExitSuccess
+                                                  )
+                                                , exitWith
                                                 )
 import           System.IO                      ( hClose
                                                 , hFlush
@@ -93,12 +93,12 @@ import           System.Posix.Files             ( FileStatus
                                                 , isNamedPipe
                                                 , isSocket
                                                 , isSymbolicLink
-                                                , ownerExecuteMode
-                                                , ownerReadMode
-                                                , ownerWriteMode
                                                 , otherExecuteMode
                                                 , otherReadMode
                                                 , otherWriteMode
+                                                , ownerExecuteMode
+                                                , ownerReadMode
+                                                , ownerWriteMode
                                                 , setGroupIDMode
                                                 , setUserIDMode
                                                 )
@@ -127,16 +127,17 @@ data FileExists = NotExists | DeadLink | Exists deriving (Eq, Show)
 type FileInfo = (FilePath, FileExists, Maybe FileStatus)
 
 data Options = Options
-  { directory :: Bool
-  , force :: Bool
+  { directory   :: Bool
+  , force       :: Bool
   , interactive :: Bool
-  , plaster :: Bool
-  , recursive :: Bool
-  , recursive' :: Bool
-  , verbose :: Bool
-  , whiteouts :: Bool
-  , files :: [FilePath]
-  } deriving (Data, Show, Typeable)
+  , plaster     :: Bool
+  , recursive   :: Bool
+  , recursive'  :: Bool
+  , verbose     :: Bool
+  , whiteouts   :: Bool
+  , files       :: [FilePath]
+  }
+  deriving (Data, Show, Typeable)
 
 getOptions :: Options
 getOptions =
@@ -329,7 +330,11 @@ createScript :: [FilePath] -> String
 createScript paths = concat
   [ "set l to {}\n"
   , concatMap
-    (\path -> "set end of l to posix file \"" ++ (replace "\"" "\\\"" path) ++ "\" as alias\n")
+    (\path ->
+      "set end of l to posix file \""
+        ++ replace "\"" "\\\"" path
+        ++ "\" as alias\n"
+    )
     paths
   , "tell application \"Finder\"\n"
   , "delete l\n"
@@ -461,18 +466,18 @@ isSpecialFile (_, Exists, Just status) =
 isPathExists :: FilePath -> IO FileExists
 isPathExists path = do
   rc <- withCString path $ \cpath -> [C.block| int {
-      struct stat lstat_info;
-      int fd;
-      if (lstat($(char *cpath), &lstat_info) == -1) {
-          return 0;  // not exists
-      }
-      fd = open($(char *cpath), O_RDONLY);
-      if (fd == -1) {
-          return 1;  // dead link
-      }
-      close(fd);
-      return 2;  // exists
-    } |]
+    struct stat lstat_info;
+    int fd;
+    if (lstat($(char *cpath), &lstat_info) == -1) {
+      return 0; // not exists
+    }
+    fd = open($(char *cpath), O_RDONLY);
+    if (fd == -1) {
+      return 1; // dead link
+    }
+    close(fd);
+    return 2; // exists
+  } |]
   return $ case rc of
     0 -> NotExists
     1 -> DeadLink
