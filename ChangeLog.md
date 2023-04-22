@@ -6,40 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-#### Added
+### Added
 
 - N/A
 
-#### Changed
+### Changed
 
 - N/A
+
+## [1.0.0.8]
+
+### Changed by 1.0.0.8
+
+- update stackage LTS
+- refactor package.yaml
+- refactor ChangeLog.md
+- refactor .editorconfig
 
 ## [1.0.0.7]
 
-#### Changed
+### Changed by 1.0.0.7
 
 - fix a bug that is cannot remove file that file name includes '"'
 
 ## [1.0.0.6]
 
-#### Added
+### Added by 1.0.0.6
 
 - add man manual
 - update `.editorconfig`
 
 ## [1.0.0.5]
 
-#### Changed
+### Changed by 1.0.0.5
 
 - fix for `stack sdist`
 
 ## [1.0.0.4]
 
-#### Added
+### Added by 1.0.0.4
 
 - add tests
 
-#### Changed
+### Changed by 1.0.0.4
 
 - fix some bugs
 - add Makefile
@@ -50,14 +59,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [1.0.0.3]
 
-#### Changed
+### Changed by 1.0.0.3
 
 - update LTS to 16.17
 - update README.md
 
 ## [1.0.0.2]
 
-#### Changed
+### Changed by 1.0.0.2
 
 - update LTS to 15.15
 - improve version string
@@ -65,7 +74,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [1.0.0.1]
 
-#### Changed
+### Changed by 1.0.0.1
 
 - add .travis.yml
 - format source code
@@ -76,11 +85,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [1.0.0.0]
 
-#### Added
+### Added by 1.0.0.0
 
 - implement first version
 
-[Unreleased]: https://github.com/satosystems/macrm/compare/v1.0.0.7...HEAD
+[Unreleased]: https://github.com/satosystems/macrm/compare/v1.0.0.8...HEAD
+[1.0.0.8]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.8
 [1.0.0.7]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.7
 [1.0.0.6]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.6
 [1.0.0.5]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.5
