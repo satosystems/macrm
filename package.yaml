@@ -34,17 +34,17 @@ library:
   other-modules:
     - Paths_macrm
   dependencies:
-    - MissingH             >= 1.4.3 && < 1.5
-    - cmdargs              >= 0.10.20 && < 0.11
-    - cond                 >= 0.4.1 && < 0.5
-    - directory            >= 1.3.6 && < 1.4
-    - exceptions           >= 0.10.4 && < 0.11
-    - githash              >= 0.1.4 && < 0.2
-    - inline-c             >= 0.9.1 && < 0.10
-    - process              >= 1.6.9 && < 1.7
-    - text                 >= 1.2.4 && < 1.3
-    - time                 >= 1.9.3 && < 1.10
-    - unix                 >= 2.7.2 && < 2.8
+    - MissingH
+    - cmdargs
+    - cond
+    - directory
+    - exceptions
+    - githash
+    - inline-c
+    - process
+    - text
+    - time
+    - unix
 
 executables:
   macrm:
@@ -69,13 +69,13 @@ tests:
       - -with-rtsopts=-N
       - -Wall
     dependencies:
-      - MissingH             >= 1.4.3 && < 1.5
-      - bytestring           >= 0.10.10 && < 0.11
-      - directory            >= 1.3.6 && < 1.4
-      - filepath             >= 1.4.2 && < 1.5
-      - hspec                >= 2.7.4 && < 2.8
-      - macrm
-      - main-tester          >= 0.2.0 && < 0.3
-      - process              >= 1.6.9 && < 1.7
-      - unix                 >= 2.7.2 && < 2.8
-      - uuid                 >= 1.3.13 && < 1.4
+      - MissingH
+      - bytestring
+      - directory
+      - filepath
+      - hspec
+      - macr
+      - main-tester
+      - process
+      - unix
+      - uuid
