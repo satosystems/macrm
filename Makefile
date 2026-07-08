@@ -36,6 +36,10 @@ check: ## check the project
 .PHONY: test
 test: check ## run the tests
 
+.PHONY: format
+format: ## format the source code using ormolu
+	find . -type f -name '*.hs' -not -path './.stack-work/*' -exec stack exec ormolu -- -m inplace {} +
+
 .PHONY: lint
 lint: ### run hlint on the project
 	hlint src app test
