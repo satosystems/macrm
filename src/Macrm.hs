@@ -482,8 +482,6 @@ makeUserAndGroupString uid gid = do
         then name'
         else searchIdName uidOrGid ss
       where
-        splitted :: [T.Text]
-        splitted = T.splitOn ":" . T.pack $ s
         id' :: String
         name' :: String
         (id', name') =
