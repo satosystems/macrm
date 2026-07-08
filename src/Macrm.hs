@@ -23,6 +23,7 @@ import Data.List.Utils (replace)
 import Data.Maybe
   ( fromJust,
     isNothing,
+    listToMaybe,
   )
 import qualified Data.Text as T
 import Data.Time.LocalTime
@@ -390,8 +391,7 @@ getAgreement :: String -> FilePath -> IO Bool
 getAgreement message path = do
   putStr $ message ++ path ++ "? "
   hFlush stdout
-  input <- getLine
-  return $ not (null input) && toUpper (head input) == 'Y'
+  maybe False ((== 'Y') . toUpper) . listToMaybe <$> getLine
 
 filterSpecialFiles ::
   ([FileInfo], [FileInfo]) -> FileInfo -> IO ([FileInfo], [FileInfo])
@@ -485,9 +485,11 @@ makeUserAndGroupString uid gid = do
         splitted :: [T.Text]
         splitted = T.splitOn ":" . T.pack $ s
         id' :: String
-        id' = T.unpack $ splitted !! 2
         name' :: String
-        name' = T.unpack . head $ splitted
+        (id', name') =
+          case splitted of
+            (nameText : _ : idText : _) -> (T.unpack idText, T.unpack nameText)
+            _ -> ("", uidOrGid)
 
 getFileInfo :: FilePath -> IO FileInfo
 getFileInfo path = do
