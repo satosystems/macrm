@@ -391,7 +391,9 @@ getAgreement message path = do
   putStr $ message ++ path ++ "? "
   hFlush stdout
   input <- getLine
-  return $ not (null input) && toUpper (head input) == 'Y'
+  return $ case input of
+    c : _ -> toUpper c == 'Y'
+    [] -> False
 
 filterSpecialFiles ::
   ([FileInfo], [FileInfo]) -> FileInfo -> IO ([FileInfo], [FileInfo])
@@ -482,12 +484,12 @@ makeUserAndGroupString uid gid = do
         then name'
         else searchIdName uidOrGid ss
       where
-        splitted :: [T.Text]
-        splitted = T.splitOn ":" . T.pack $ s
         id' :: String
-        id' = T.unpack $ splitted !! 2
         name' :: String
-        name' = T.unpack . head $ splitted
+        (id', name') = case T.splitOn ":" (T.pack s) of
+          nameText : _ : idText : _ ->
+            (T.unpack nameText, T.unpack idText)
+          _ -> ("", "")
 
 getFileInfo :: FilePath -> IO FileInfo
 getFileInfo path = do
