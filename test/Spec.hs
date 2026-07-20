@@ -63,6 +63,7 @@ data Path = Path
     relativePath :: FilePath,
     absolutePath :: FilePath
   }
+  deriving (Show)
 
 data TestFiles = TestFiles
   { parentDir :: Path,
@@ -74,6 +75,7 @@ data TestFiles = TestFiles
     symbolicLinkDirs :: [Path],
     deadSymbolicLinks :: [Path]
   }
+  deriving (Show)
 
 createTestFile :: String -> IO Path
 createTestFile baseDir = do
