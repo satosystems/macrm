@@ -22,7 +22,6 @@ import Data.Int (Int32)
 import Data.List.Utils (replace)
 import Data.Maybe
   ( fromJust,
-    isNothing,
     listToMaybe,
   )
 import qualified Data.Text as T
@@ -34,11 +33,7 @@ import Data.Time.LocalTime
     getZonedTime,
     localTimeOfDay,
   )
-import Data.Tuple.Utils
-  ( fst3,
-    snd3,
-    thd3,
-  )
+import Data.Tuple.Utils (fst3)
 import Data.Version (showVersion)
 import Foreign.C.String (withCString)
 import GitHash
@@ -282,16 +277,18 @@ rm _ exitCode _ removables [] = do
     _ -> return $ ExitFailure 1
 rm options exitCode uid removables (path : paths) = do
   fileInfo <- getFileInfo path
-  if snd3 fileInfo == NotExists
-    then
+  case fileInfo of
+    (_, NotExists, _) ->
       if force options
         then rm options exitCode uid removables paths
         else do
           hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
           rm options (ExitFailure 1) uid removables paths
-    else do
-      let status = fromJust . thd3 $ fileInfo
-      let isDir = snd3 fileInfo == Exists && isDirectory status
+    (_, _, Nothing) -> do
+      hPutStrLn stderr $ "macrm: " ++ path ++ ": unable to inspect file"
+      rm options (ExitFailure 1) uid removables paths
+    (_, fileExists, Just status) -> do
+      let isDir = fileExists == Exists && isDirectory status
       let withRecursive = recursive options || recursive' options
       let withDirectory = directory options
       isNotEmpty <-
@@ -324,14 +321,12 @@ rm options exitCode uid removables (path : paths) = do
             else do
               let fileUid = fileOwner status
                   fileGid = fileGroup status
-              mMessage <-
-                if uid == fileUid
-                  then return Nothing
-                  else Just <$> makeMessage fileInfo fileUid fileGid
               needRemove <-
-                if isNothing mMessage
+                if uid == fileUid
                   then return True
-                  else getAgreement (fromJust mMessage) path
+                  else do
+                    message <- makeMessage path status fileUid fileGid
+                    getAgreement message path
               if needRemove
                 then do
                   when (verbose options) $ putStrLn path
@@ -413,12 +408,12 @@ getFileFlags path = do
   output <- hGetContents stdOut
   if null output
     then return Nothing
-    else
-      let flags = T.unpack $ (T.splitOn " " . T.pack $ output) !! 7
-       in return $ Just flags
+    else case drop 4 (words output) of
+      flags : _ -> return $ Just flags
+      [] -> return Nothing
 
-makeMessage :: FileInfo -> UserID -> GroupID -> IO String
-makeMessage (path, _, Just status) uid gid = do
+makeMessage :: FilePath -> FileStatus -> UserID -> GroupID -> IO String
+makeMessage path status uid gid = do
   userAndGroup <- makeUserAndGroupString uid gid
   mFlags <- getFileFlags path
   return $
@@ -428,7 +423,6 @@ makeMessage (path, _, Just status) uid gid = do
       ++ userAndGroup
       ++ maybe "" (" " ++) mFlags
       ++ " for "
-makeMessage _ _ _ = undefined -- never happen
 
 makePermissionString :: FileStatus -> String
 makePermissionString status =
@@ -501,7 +495,7 @@ getFileInfo path = do
 isSpecialFile :: FileInfo -> Bool
 isSpecialFile (_, NotExists, _) = False
 isSpecialFile (_, DeadLink, _) = True
-isSpecialFile (_, Exists, Nothing) = undefined -- never happen
+isSpecialFile (_, Exists, Nothing) = False -- never happen
 isSpecialFile (_, Exists, Just status) =
   isSymbolicLink status
     || isNamedPipe status
@@ -525,11 +519,11 @@ isPathExists path = do
     close(fd);
     return 2; // exists
   } |]
-  return $ case rc of
-    0 -> NotExists
-    1 -> DeadLink
-    2 -> Exists
-    _ -> undefined -- never happen
+  case rc of
+    0 -> return NotExists
+    1 -> return DeadLink
+    2 -> return Exists
+    _ -> fail $ "unexpected lstat result: " ++ show rc -- never happen
 
 gitInfo :: GitInfo
 gitInfo = $$(tGitInfoCwd)
