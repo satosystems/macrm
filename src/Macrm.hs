@@ -484,10 +484,10 @@ makeUserAndGroupString uid gid = do
       where
         id' :: String
         name' :: String
-        (id', name') =
-          case splitted of
-            (nameText : _ : idText : _) -> (T.unpack idText, T.unpack nameText)
-            _ -> ("", uidOrGid)
+        (id', name') = case T.splitOn ":" (T.pack s) of
+          nameText : _ : idText : _ ->
+            (T.unpack idText, T.unpack nameText)
+          _ -> ("", "")
 
 getFileInfo :: FilePath -> IO FileInfo
 getFileInfo path = do
