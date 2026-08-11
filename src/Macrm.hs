@@ -5,35 +5,15 @@
 
 module Macrm where
 
-import Control.Conditional (ifM)
-import Control.Monad
-  ( foldM,
-    unless,
-    when,
-  )
+import Control.Monad (when)
 import Data.Char (toUpper)
-import Data.Fixed
-  ( Fixed,
-    HasResolution,
-    Uni,
-    showFixed,
-  )
 import Data.Int (Int32)
-import Data.List.Utils (replace)
+import Data.List (intercalate)
 import Data.Maybe
   ( fromJust,
     listToMaybe,
   )
 import qualified Data.Text as T
-import Data.Time.LocalTime
-  ( TimeOfDay (TimeOfDay),
-    ZonedTime
-      ( zonedTimeToLocalTime
-      ),
-    getZonedTime,
-    localTimeOfDay,
-  )
-import Data.Tuple.Utils (fst3)
 import Data.Version (showVersion)
 import Foreign.C.String (withCString)
 import GitHash
@@ -58,13 +38,7 @@ import System.Console.CmdArgs
     typ,
     (&=),
   )
-import System.Directory
-  ( doesDirectoryExist,
-    getHomeDirectory,
-    listDirectory,
-    renameDirectory,
-    renameFile,
-  )
+import System.Directory (listDirectory)
 import System.Exit
   ( ExitCode
       ( ExitFailure,
@@ -95,12 +69,7 @@ import System.Posix.Files
     groupReadMode,
     groupWriteMode,
     intersectFileModes,
-    isBlockDevice,
-    isCharacterDevice,
     isDirectory,
-    isNamedPipe,
-    isSocket,
-    isSymbolicLink,
     otherExecuteMode,
     otherReadMode,
     otherWriteMode,
@@ -213,55 +182,6 @@ getOptions =
 absolutize :: FilePath -> IO FilePath
 absolutize path = fromJust . guess_dotdot <$> absolute_path path
 
-moveToTrash :: [FileInfo] -> IO ()
-moveToTrash [] = return ()
-moveToTrash (fileInfo : fis) = do
-  pair <- makePair fileInfo
-  move pair
-  moveToTrash fis
-  where
-    makePair :: FileInfo -> IO (FilePath, FilePath)
-    makePair (path, _, _) = do
-      let fileOrDirName = T.unpack . last . T.splitOn "/" . T.pack $ path
-      removedPath <- getRemovedPath fileOrDirName
-      return (path, removedPath)
-    move :: (FilePath, FilePath) -> IO ()
-    move (from, to) =
-      ifM
-        (doesDirectoryExist from)
-        (renameDirectory from to)
-        (renameFile from to)
-
-getRemovedPath :: FilePath -> IO FilePath
-getRemovedPath fileOrDirName = do
-  dayOfTime <- getCurrentDayOfTime
-  searchRemovedPath fileOrDirName $ ' ' : dayOfTime
-
-searchRemovedPath :: FilePath -> String -> IO FilePath
-searchRemovedPath fileOrDirName suffix = do
-  homePath <- getHomeDirectory
-  let trashPath = homePath ++ "/.Trash/"
-  removed <- listDirectory trashPath
-  if fileOrDirName `elem` removed
-    then searchRemovedPath (fileOrDirName ++ suffix) suffix
-    else return $ trashPath ++ fileOrDirName
-
-getCurrentDayOfTime :: IO String
-getCurrentDayOfTime = do
-  zonedTime <- getZonedTime
-  let (TimeOfDay hour minute second) =
-        (localTimeOfDay . zonedTimeToLocalTime) zonedTime
-      sHour = if hour >= 10 then show hour else '0' : show hour
-      sMinute = if minute >= 10 then show minute else '0' : show minute
-      uSecond = changeResolution second :: Uni
-      sSecond' = showFixed True uSecond
-      sSecond = if uSecond >= 10 then sSecond' else '0' : sSecond'
-      suffix = sHour ++ "." ++ sMinute ++ "." ++ sSecond
-  return suffix
-
-changeResolution :: (HasResolution a, HasResolution b) => Fixed a -> Fixed b
-changeResolution = fromRational . toRational
-
 rm :: Options -> ExitCode -> UserID -> [FileInfo] -> [FilePath] -> IO ExitCode
 rm (Options False False False False False False False False []) ExitSuccess _ [] [] =
   do
@@ -335,27 +255,15 @@ rm options exitCode uid removables (path : paths) = do
 
 remove :: [FileInfo] -> IO ExitCode
 remove fileInfos = do
-  let (paths, isDeadLinks, mStatuses) =
-        foldl
-          ( \(paths', isDeadLinks', mStatuses') (path, isDeadLink, mStatus) ->
-              (path : paths', isDeadLink : isDeadLinks', mStatus : mStatuses')
-          )
-          ([], [], [])
-          fileInfos
+  let paths = map (\(path, _, _) -> path) fileInfos
   absolutePaths <- mapM absolutize paths
-  (normals, specials) <-
-    foldM filterSpecialFiles ([], []) $
-      zip3 absolutePaths isDeadLinks mStatuses
-  unless (null specials) $ moveToTrash . reverse $ specials
-  if null normals
-    then return ExitSuccess
-    else executeScript . createScript . map fst3 . reverse $ normals
+  executeScript . createScript . reverse $ absolutePaths
 
 executeScript :: String -> IO ExitCode
 executeScript script = do
   (Just stdIn, _, _, ph) <-
     createProcess
-      (proc "osascript" [])
+      (proc "osascript" ["-l", "JavaScript"])
         { std_in = CreatePipe,
           std_out = CreatePipe,
           std_err = CreatePipe
@@ -367,33 +275,39 @@ executeScript script = do
 
 createScript :: [FilePath] -> String
 createScript paths =
-  concat
-    [ "set l to {}\n",
-      concatMap
-        ( \path ->
-            "set end of l to posix file \""
-              ++ replace "\"" "\\\"" path
-              ++ "\" as alias\n"
-        )
-        paths,
-      "tell application \"Finder\"\n",
-      "delete l\n",
-      "end tell\n",
-      "return"
+  unlines
+    [ "ObjC.import('Foundation');",
+      "const fm = $.NSFileManager.defaultManager;",
+      "const paths = [",
+      intercalate ",\n" $ map (("  " ++) . quoteJavaScriptString) paths,
+      "];",
+      "for (const path of paths) {",
+      "  const url = $.NSURL.fileURLWithPath(path);",
+      "  const result = Ref();",
+      "  const err = Ref();",
+      "  const ok = fm.trashItemAtURLResultingItemURLError(url, result, err);",
+      "  if (!ok) {",
+      "    throw ObjC.unwrap(err[0].localizedDescription);",
+      "  }",
+      "}"
     ]
+
+quoteJavaScriptString :: String -> String
+quoteJavaScriptString value = "\"" ++ concatMap escape value ++ "\""
+  where
+    escape :: Char -> String
+    escape '"' = "\\\""
+    escape '\\' = "\\\\"
+    escape '\n' = "\\n"
+    escape '\r' = "\\r"
+    escape '\t' = "\\t"
+    escape c = [c]
 
 getAgreement :: String -> FilePath -> IO Bool
 getAgreement message path = do
   putStr $ message ++ path ++ "? "
   hFlush stdout
   maybe False ((== 'Y') . toUpper) . listToMaybe <$> getLine
-
-filterSpecialFiles ::
-  ([FileInfo], [FileInfo]) -> FileInfo -> IO ([FileInfo], [FileInfo])
-filterSpecialFiles (normals, specials) fileInfo =
-  if isSpecialFile fileInfo
-    then return (normals, fileInfo : specials)
-    else return (fileInfo : normals, specials)
 
 getFileFlags :: FilePath -> IO (Maybe String)
 getFileFlags path = do
@@ -491,17 +405,6 @@ getFileInfo path = do
     else do
       status <- getSymbolicLinkStatus path
       return (path, fileExists, Just status)
-
-isSpecialFile :: FileInfo -> Bool
-isSpecialFile (_, NotExists, _) = False
-isSpecialFile (_, DeadLink, _) = True
-isSpecialFile (_, Exists, Nothing) = False -- never happen
-isSpecialFile (_, Exists, Just status) =
-  isSymbolicLink status
-    || isNamedPipe status
-    || isSocket status
-    || isCharacterDevice status
-    || isBlockDevice status
 
 isPathExists :: FilePath -> IO FileExists
 isPathExists path = do
