@@ -14,6 +14,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - N/A
 
+## [1.0.0.9]
+
+### Changed by 1.0.0.9
+
+- use macOS `NSFileManager` to move files to the Trash
+  - as a result of the above, it is now possible to delete symbolic links
+- fix user and group name lookup
+- remove partial-function warnings and refactor file handling
+- skip Trash-dependent tests when the Trash is inaccessible
+  - because changes to macOS specifications have made it impossible to access it
+- update the Stackage resolver to LTS 24.49 and fix the test package dependency
+
 ## [1.0.0.8]
 
 ### Changed by 1.0.0.8
@@ -90,6 +102,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - implement first version
 
 [Unreleased]: https://github.com/satosystems/macrm/compare/v1.0.0.8...HEAD
+[1.0.0.9]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.9
 [1.0.0.8]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.8
 [1.0.0.7]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.7
 [1.0.0.6]: https://github.com/satosystems/macrm/releases/tag/v1.0.0.6

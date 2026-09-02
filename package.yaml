@@ -1,5 +1,5 @@
 name: macrm
-version: 1.0.0.8
+version: 1.0.0.9
 github: "satosystems/macrm"
 license: BSD3
 author: "Satoshi Ogata"
@@ -74,7 +74,7 @@ tests:
       - directory
       - filepath
       - hspec
-      - macr
+      - macrm
       - main-tester
       - process
       - unix

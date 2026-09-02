@@ -2,6 +2,10 @@
 
 module Main where
 
+import Control.Exception
+  ( IOException,
+    try,
+  )
 import qualified Data.ByteString.Char8 as BS8
 import Data.List.Utils (startswith)
 import Data.Maybe (isNothing)
@@ -11,6 +15,7 @@ import Data.Version (showVersion)
 import Macrm
   ( absolutize,
     run,
+    versionString,
   )
 import Paths_macrm (version)
 import System.Directory
@@ -24,19 +29,13 @@ import System.Directory
   )
 import System.Environment (getEnv)
 import System.FilePath (addTrailingPathSeparator)
-import System.IO (hGetContents)
 import System.Posix.Files (createSymbolicLink)
-import System.Process
-  ( CreateProcess (std_out),
-    StdStream (CreatePipe),
-    createProcess,
-    proc,
-  )
 import Test.Hspec
   ( Spec,
     describe,
     hspec,
     it,
+    pendingWith,
     shouldBe,
     shouldContain,
     shouldReturn,
@@ -63,6 +62,7 @@ data Path = Path
     relativePath :: FilePath,
     absolutePath :: FilePath
   }
+  deriving (Show)
 
 data TestFiles = TestFiles
   { parentDir :: Path,
@@ -74,6 +74,11 @@ data TestFiles = TestFiles
     symbolicLinkDirs :: [Path],
     deadSymbolicLinks :: [Path]
   }
+  deriving (Show)
+
+data TrashAccess
+  = TrashAccessible
+  | TrashInaccessible String
 
 createTestFile :: String -> IO Path
 createTestFile baseDir = do
@@ -147,8 +152,27 @@ createSpecifiedFile name = do
   filePath <- Path name path <$> absolutize path
   return (baseDir, filePath)
 
-spec :: FilePath -> Spec
-spec trashPath = describe "run" $ do
+detectTrashAccess :: FilePath -> IO TrashAccess
+detectTrashAccess trashPath = do
+  result <- try (listDirectory trashPath) :: IO (Either IOException [FilePath])
+  return $ case result of
+    Right _ -> TrashAccessible
+    Left err ->
+      TrashInaccessible $
+        "skipped because "
+          ++ trashPath
+          ++ " is not accessible on this macOS environment: "
+          ++ show err
+
+itWithTrash :: TrashAccess -> String -> IO () -> Spec
+itWithTrash trashAccess description expectation =
+  it description $
+    case trashAccess of
+      TrashAccessible -> expectation
+      TrashInaccessible reason -> pendingWith reason
+
+spec :: TrashAccess -> FilePath -> Spec
+spec trashAccess trashPath = describe "run" $ do
   it "shows usage with no options" $ do
     pr <- withArgs [] $ captureProcessResult run
     prStdout pr `shouldBe` ""
@@ -158,21 +182,8 @@ spec trashPath = describe "run" $ do
     prExitCode pr `shouldBe` ExitFailure 1
     (isNothing . prException) pr `shouldBe` True
   it "shows version with `--version' option" $ do
-    (_, Just hout, _, _) <-
-      createProcess
-        (proc "git" ["rev-parse", "HEAD"])
-          { std_out = CreatePipe
-          }
-    output <- hGetContents hout
     pr <- withArgs ["--version"] $ captureProcessResult run
-    prStdout pr
-      `shouldBe` BS8.pack
-        ( "macrm ver "
-            ++ showVersion version
-            ++ " based on Git commit "
-            ++ (head . lines) output
-            ++ " Clean\n"
-        )
+    prStdout pr `shouldBe` BS8.pack (versionString ++ "\n")
     prStderr pr `shouldBe` ""
     prExitCode pr `shouldBe` ExitSuccess
     (isNothing . prException) pr `shouldBe` True
@@ -241,7 +252,7 @@ spec trashPath = describe "run" $ do
     prExitCode pr `shouldBe` ExitFailure 1
     (isNothing . prException) pr `shouldBe` True
     removeTestFiles testFiles
-  it "removes a normal file" $ do
+  itWithTrash trashAccess "removes a normal file" $ do
     testFiles <- createTestFiles
     let path = head . normalFiles $ testFiles
     let fileName = fileOrDirName path
@@ -256,7 +267,7 @@ spec trashPath = describe "run" $ do
     doesPathExist filePath `shouldReturn` False
     removeFile removedFilePath
     removeTestFiles testFiles
-  it "removes normal files" $ do
+  itWithTrash trashAccess "removes normal files" $ do
     testFiles <- createTestFiles
     let paths = normalFiles testFiles
     let fileNames = map fileOrDirName paths
@@ -272,7 +283,7 @@ spec trashPath = describe "run" $ do
     mapM_ (\path -> doesPathExist path `shouldReturn` False) filePaths
     mapM_ removeFile removedFilePaths
     removeTestFiles testFiles
-  it "removes same name files" $ do
+  itWithTrash trashAccess "removes same name files" $ do
     testFiles <- createTestFiles
     let basePath = head . normalFiles $ testFiles
     let filePath0 = relativePath basePath
@@ -295,7 +306,7 @@ spec trashPath = describe "run" $ do
     removeFile removedFilePath0
     removeFile . (addTrailingPathSeparator trashPath ++) . head $ filtered
     removeTestFiles testFiles
-  it "removes same name special files" $ do
+  itWithTrash trashAccess "removes same name special files" $ do
     testFiles <- createTestFiles
     let path = head . symbolicLinkFiles $ testFiles
     let fileName = fileOrDirName path
@@ -318,7 +329,7 @@ spec trashPath = describe "run" $ do
     removeFile removedFilePath0
     removeFile . (addTrailingPathSeparator trashPath ++) . head $ filtered
     removeTestFiles testFiles
-  it "removes same name directries" $ do
+  itWithTrash trashAccess "removes same name directries" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -344,7 +355,7 @@ spec trashPath = describe "run" $ do
       . head
       $ filtered
     removeTestFiles testFiles
-  it "fails to remove directory" $ do
+  itWithTrash trashAccess "fails to remove directory" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -359,7 +370,7 @@ spec trashPath = describe "run" $ do
     doesPathExist removedDirPath `shouldReturn` False
     doesPathExist dirPath `shouldReturn` True
     removeTestFiles testFiles
-  it "removes empty directory with `--directory' option" $ do
+  itWithTrash trashAccess "removes empty directory with `--directory' option" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -374,7 +385,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "removes empty directory with `-d' option" $ do
+  itWithTrash trashAccess "removes empty directory with `-d' option" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -389,7 +400,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "fails to remove non empty directory with `--directory' option" $ do
+  itWithTrash trashAccess "fails to remove non empty directory with `--directory' option" $ do
     testFiles <- createTestFiles
     let path = head . notEmptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -404,7 +415,7 @@ spec trashPath = describe "run" $ do
     doesPathExist removedDirPath `shouldReturn` False
     doesPathExist dirPath `shouldReturn` True
     removeTestFiles testFiles
-  it "fails to remove non empty directory with `-d' option" $ do
+  itWithTrash trashAccess "fails to remove non empty directory with `-d' option" $ do
     testFiles <- createTestFiles
     let path = head . notEmptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -439,7 +450,7 @@ spec trashPath = describe "run" $ do
     prExitCode pr `shouldBe` ExitSuccess
     (isNothing . prException) pr `shouldBe` True
     removeTestFiles testFiles
-  it "removes or not with `--interactive' option" $ do
+  itWithTrash trashAccess "removes or not with `--interactive' option" $ do
     testFiles <- createTestFiles
     let paths = normalFiles testFiles
     let fileNames = map fileOrDirName paths
@@ -465,7 +476,7 @@ spec trashPath = describe "run" $ do
     removeFile $ head removedFilePaths
     removeFile $ last removedFilePaths
     removeTestFiles testFiles
-  it "removes or not with `-i' option" $ do
+  itWithTrash trashAccess "removes or not with `-i' option" $ do
     testFiles <- createTestFiles
     let paths = normalFiles testFiles
     let fileNames = map fileOrDirName paths
@@ -491,7 +502,7 @@ spec trashPath = describe "run" $ do
     removeFile $ head removedFilePaths
     removeFile $ last removedFilePaths
     removeTestFiles testFiles
-  it "ignores `--plaster' option" $ do
+  itWithTrash trashAccess "ignores `--plaster' option" $ do
     testFiles <- createTestFiles
     let path = head . normalFiles $ testFiles
     let fileName = fileOrDirName path
@@ -506,7 +517,7 @@ spec trashPath = describe "run" $ do
     doesPathExist filePath `shouldReturn` False
     removeFile removedFilePath
     removeTestFiles testFiles
-  it "ignores `-P' option" $ do
+  itWithTrash trashAccess "ignores `-P' option" $ do
     testFiles <- createTestFiles
     let path = head . normalFiles $ testFiles
     let fileName = fileOrDirName path
@@ -521,7 +532,7 @@ spec trashPath = describe "run" $ do
     doesPathExist filePath `shouldReturn` False
     removeFile removedFilePath
     removeTestFiles testFiles
-  it "removes non empty directory with `--recursive' option" $ do
+  itWithTrash trashAccess "removes non empty directory with `--recursive' option" $ do
     testFiles <- createTestFiles
     let path = head . notEmptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -536,7 +547,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "removes non empty directory with `-R' option" $ do
+  itWithTrash trashAccess "removes non empty directory with `-R' option" $ do
     testFiles <- createTestFiles
     let path = head . notEmptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -551,7 +562,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "removes non empty directory with `-r' option" $ do
+  itWithTrash trashAccess "removes non empty directory with `-r' option" $ do
     testFiles <- createTestFiles
     let path = head . notEmptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -566,7 +577,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "removes specified files and shows verbose with `--verbose' option" $ do
+  itWithTrash trashAccess "removes specified files and shows verbose with `--verbose' option" $ do
     testFiles <- createTestFiles
     let paths = normalFiles testFiles
     let fileNames = map fileOrDirName paths
@@ -582,7 +593,7 @@ spec trashPath = describe "run" $ do
     mapM_ (\path -> doesPathExist path `shouldReturn` False) filePaths
     mapM_ removeFile removedFilePaths
     removeTestFiles testFiles
-  it "removes specified files and shows verbose with `-v' option" $ do
+  itWithTrash trashAccess "removes specified files and shows verbose with `-v' option" $ do
     testFiles <- createTestFiles
     let paths = normalFiles testFiles
     let fileNames = map fileOrDirName paths
@@ -598,7 +609,7 @@ spec trashPath = describe "run" $ do
     mapM_ (\path -> doesPathExist path `shouldReturn` False) filePaths
     mapM_ removeFile removedFilePaths
     removeTestFiles testFiles
-  it "ignores `--whiteouts' option" $ do
+  itWithTrash trashAccess "ignores `--whiteouts' option" $ do
     testFiles <- createTestFiles
     let path = head . normalFiles $ testFiles
     let fileName = fileOrDirName path
@@ -613,7 +624,7 @@ spec trashPath = describe "run" $ do
     doesPathExist filePath `shouldReturn` False
     removeFile removedFilePath
     removeTestFiles testFiles
-  it "ignores `-W' option" $ do
+  itWithTrash trashAccess "ignores `-W' option" $ do
     testFiles <- createTestFiles
     let path = head . normalFiles $ testFiles
     let fileName = fileOrDirName path
@@ -628,7 +639,7 @@ spec trashPath = describe "run" $ do
     doesPathExist filePath `shouldReturn` False
     removeFile removedFilePath
     removeTestFiles testFiles
-  it "removes symbolic files" $ do
+  itWithTrash trashAccess "removes symbolic files" $ do
     testFiles <- createTestFiles
     let paths = symbolicLinkFiles testFiles
     let fileNames = map fileOrDirName paths
@@ -645,7 +656,7 @@ spec trashPath = describe "run" $ do
           map (addTrailingPathSeparator trashPath ++) fileNames
     mapM_ removeFile removedFilePaths
     removeTestFiles testFiles
-  it "removes dead link files" $ do
+  itWithTrash trashAccess "removes dead link files" $ do
     testFiles <- createTestFiles
     let paths = deadSymbolicLinks testFiles
     let fileNames = map fileOrDirName paths
@@ -662,7 +673,7 @@ spec trashPath = describe "run" $ do
           map (addTrailingPathSeparator trashPath ++) fileNames
     mapM_ removeFile removedFilePaths
     removeTestFiles testFiles
-  it "removes an empty directory with `--interactive --directory' options" $ do
+  itWithTrash trashAccess "removes an empty directory with `--interactive --directory' options" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -680,7 +691,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "removes empty directory with `-id' options" $ do
+  itWithTrash trashAccess "removes empty directory with `-id' options" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -695,7 +706,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "removes empty directory with `--interactive --recursive' options" $ do
+  itWithTrash trashAccess "removes empty directory with `--interactive --recursive' options" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -714,7 +725,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "removes empty directory with `-iR' options" $ do
+  itWithTrash trashAccess "removes empty directory with `-iR' options" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -730,7 +741,7 @@ spec trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
-  it "removes empty directory with `-ir' options" $ do
+  itWithTrash trashAccess "removes empty directory with `-ir' options" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
@@ -755,9 +766,9 @@ spec trashPath = describe "run" $ do
     prExitCode pr `shouldBe` ExitSuccess
     (isNothing . prException) pr `shouldBe` True
 
-bugs :: FilePath -> Spec
-bugs trashPath = describe "bugs" $ do
-  it "remove '\"' file" $ do
+bugs :: TrashAccess -> FilePath -> Spec
+bugs trashAccess trashPath = describe "bugs" $ do
+  itWithTrash trashAccess "remove '\"' file" $ do
     (baseDir, path) <- createSpecifiedFile "\""
     pr <- withArgs [relativePath path] $ captureProcessResult run
     prExitCode pr `shouldBe` ExitSuccess
@@ -769,5 +780,6 @@ main :: IO ()
 main = do
   homePath <- getEnv "HOME"
   let trashPath = homePath ++ "/.Trash"
-  hspec $ spec trashPath
-  hspec $ bugs trashPath
+  trashAccess <- detectTrashAccess trashPath
+  hspec $ spec trashAccess trashPath
+  hspec $ bugs trashAccess trashPath
