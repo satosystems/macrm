@@ -39,6 +39,7 @@ library:
     - cond
     - directory
     - exceptions
+    - filepath
     - githash
     - inline-c
     - process

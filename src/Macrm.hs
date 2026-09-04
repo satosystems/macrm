@@ -46,6 +46,7 @@ import System.Exit
       ),
     exitWith,
   )
+import System.FilePath ((</>))
 import System.IO
   ( hClose,
     hFlush,
@@ -189,12 +190,7 @@ rm (Options False False False False False False False False []) ExitSuccess _ []
       stderr
       "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
     return $ ExitFailure 1
-rm _ exitCode _ [] [] = return exitCode
-rm _ exitCode _ removables [] = do
-  ec <- remove removables
-  case ec of
-    ExitSuccess -> return exitCode
-    _ -> return $ ExitFailure 1
+rm _ exitCode _ removables [] = removeRemovables exitCode removables
 rm options exitCode uid removables (path : paths) = do
   fileInfo <- getFileInfo path
   case fileInfo of
@@ -229,14 +225,25 @@ rm options exitCode uid removables (path : paths) = do
         else
           if interactive options
             then do
-              let message = case (isDir, withRecursive) of
-                    (True, True) -> "examine files in directory "
-                    _ -> "remove "
+              let (message, isDirWithRecursive) = case (isDir, withRecursive) of
+                    (True, True) -> ("examine files in directory ", True)
+                    _ -> ("remove ", False)
               agreement <- getAgreement message path
               if agreement
-                then do
-                  when (verbose options) $ putStrLn path
-                  rm options exitCode uid (fileInfo : removables) paths
+                then
+                  if isDirWithRecursive
+                    then
+                      rmInteractiveRecursiveDirectory
+                        options
+                        exitCode
+                        uid
+                        removables
+                        fileInfo
+                        path
+                        paths
+                    else do
+                      when (verbose options) $ putStrLn path
+                      rm options exitCode uid (fileInfo : removables) paths
                 else rm options exitCode uid removables paths
             else do
               let fileUid = fileOwner status
@@ -252,6 +259,49 @@ rm options exitCode uid removables (path : paths) = do
                   when (verbose options) $ putStrLn path
                   rm options exitCode uid (fileInfo : removables) paths
                 else rm options exitCode uid removables paths
+
+removeRemovables :: ExitCode -> [FileInfo] -> IO ExitCode
+removeRemovables exitCode [] = return exitCode
+removeRemovables exitCode removables = do
+  ec <- remove removables
+  case ec of
+    ExitSuccess -> return exitCode
+    _ -> return $ ExitFailure 1
+
+markFailed :: ExitCode -> ExitCode
+markFailed ExitSuccess = ExitFailure 1
+markFailed exitCode = exitCode
+
+rmInteractiveRecursiveDirectory ::
+  Options ->
+  ExitCode ->
+  UserID ->
+  [FileInfo] ->
+  FileInfo ->
+  FilePath ->
+  [FilePath] ->
+  IO ExitCode
+rmInteractiveRecursiveDirectory options exitCode uid removables fileInfo path paths = do
+  -- -iR では、親ディレクトリを削除候補に入れる前に子要素を個別に確認する。
+  -- 先に指定された子パスが保留中の場合、物理的に残ったままだと再帰走査で二重に処理されるため、ここで確定済みの削除を反映する。
+  exitCodeAfterPending <- removeRemovables exitCode removables
+  entries <- map (path </>) <$> listDirectory path
+  exitCodeAfterEntries <- rm options exitCodeAfterPending uid [] entries
+  removeDirectoryAgreement <- getAgreement "remove " path
+  if removeDirectoryAgreement
+    then do
+      afterEntries <- listDirectory path
+      if null afterEntries
+        then do
+          when (verbose options) $ putStrLn path
+          exitCodeAfterDirectory <- removeRemovables exitCodeAfterEntries [fileInfo]
+          rm options exitCodeAfterDirectory uid [] paths
+        else do
+          -- 子要素を残したまま親を Trash に送ると、ユーザーが拒否した子まで削除される。
+          -- そのため、通常の rmdir 相当として失敗扱いにして次の引数へ進む。
+          hPutStrLn stderr $ "macrm: " ++ path ++ ": Directory not empty"
+          rm options (markFailed exitCodeAfterEntries) uid [] paths
+    else rm options exitCodeAfterEntries uid [] paths
 
 remove :: [FileInfo] -> IO ExitCode
 remove fileInfos = do

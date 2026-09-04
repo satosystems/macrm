@@ -28,11 +28,12 @@ import System.Directory
     renameFile,
   )
 import System.Environment (getEnv)
-import System.FilePath (addTrailingPathSeparator)
+import System.FilePath (addTrailingPathSeparator, (</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Hspec
   ( Spec,
     describe,
+    expectationFailure,
     hspec,
     it,
     pendingWith,
@@ -706,17 +707,43 @@ spec trashAccess trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
+  it "asks before removing a recursive empty directory" $ do
+    testFiles <- createTestFiles
+    case emptyDirs testFiles of
+      path : _ -> do
+        let dirPath = relativePath path
+        pr <- withStdin "y\nn\n" $ withArgs ["-iR", dirPath] $ captureProcessResult run
+        prStdout pr
+          `shouldBe` BS8.pack
+            ( "examine files in directory "
+                ++ dirPath
+                ++ "? remove "
+                ++ dirPath
+                ++ "? "
+            )
+        prStderr pr `shouldBe` ""
+        prExitCode pr `shouldBe` ExitSuccess
+        (isNothing . prException) pr `shouldBe` True
+        doesPathExist dirPath `shouldReturn` True
+        removeTestFiles testFiles
+      [] -> expectationFailure "expected at least one empty test directory"
   itWithTrash trashAccess "removes empty directory with `--interactive --recursive' options" $ do
     testFiles <- createTestFiles
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
     let dirPath = relativePath path
     pr <-
-      withStdin "y\n" $
+      withStdin "y\ny\n" $
         withArgs ["--interactive", "--recursive", dirPath] $
           captureProcessResult run
     prStdout pr
-      `shouldBe` BS8.pack ("examine files in directory " ++ dirPath ++ "? ")
+      `shouldBe` BS8.pack
+        ( "examine files in directory "
+            ++ dirPath
+            ++ "? remove "
+            ++ dirPath
+            ++ "? "
+        )
     prStderr pr `shouldBe` ""
     prExitCode pr `shouldBe` ExitSuccess
     (isNothing . prException) pr `shouldBe` True
@@ -730,9 +757,15 @@ spec trashAccess trashPath = describe "run" $ do
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
     let dirPath = relativePath path
-    pr <- withStdin "y\n" $ withArgs ["-iR", dirPath] $ captureProcessResult run
+    pr <- withStdin "y\ny\n" $ withArgs ["-iR", dirPath] $ captureProcessResult run
     prStdout pr
-      `shouldBe` BS8.pack ("examine files in directory " ++ dirPath ++ "? ")
+      `shouldBe` BS8.pack
+        ( "examine files in directory "
+            ++ dirPath
+            ++ "? remove "
+            ++ dirPath
+            ++ "? "
+        )
     prStderr pr `shouldBe` ""
     prExitCode pr `shouldBe` ExitSuccess
     (isNothing . prException) pr `shouldBe` True
@@ -746,9 +779,15 @@ spec trashAccess trashPath = describe "run" $ do
     let path = head . emptyDirs $ testFiles
     let dirName = fileOrDirName path
     let dirPath = relativePath path
-    pr <- withStdin "y\n" $ withArgs ["-ir", dirPath] $ captureProcessResult run
+    pr <- withStdin "y\ny\n" $ withArgs ["-ir", dirPath] $ captureProcessResult run
     prStdout pr
-      `shouldBe` BS8.pack ("examine files in directory " ++ dirPath ++ "? ")
+      `shouldBe` BS8.pack
+        ( "examine files in directory "
+            ++ dirPath
+            ++ "? remove "
+            ++ dirPath
+            ++ "? "
+        )
     prStderr pr `shouldBe` ""
     prExitCode pr `shouldBe` ExitSuccess
     (isNothing . prException) pr `shouldBe` True
@@ -757,6 +796,33 @@ spec trashAccess trashPath = describe "run" $ do
     doesPathExist dirPath `shouldReturn` False
     removeDirectoryRecursive removedDirPath
     removeTestFiles testFiles
+  it "fails to remove a recursive directory if a child remains after confirmation" $ do
+    testFiles <- createTestFiles
+    let path = head . notEmptyDirs $ testFiles
+    let dirPath = relativePath path
+    entries <- listDirectory dirPath
+    case entries of
+      [entry] -> do
+        let childPath = dirPath </> entry
+        pr <- withStdin "y\nn\ny\n" $ withArgs ["-iR", dirPath] $ captureProcessResult run
+        prStdout pr
+          `shouldBe` BS8.pack
+            ( "examine files in directory "
+                ++ dirPath
+                ++ "? remove "
+                ++ childPath
+                ++ "? remove "
+                ++ dirPath
+                ++ "? "
+            )
+        prStderr pr
+          `shouldBe` BS8.pack ("macrm: " ++ dirPath ++ ": Directory not empty\n")
+        prExitCode pr `shouldBe` ExitFailure 1
+        (isNothing . prException) pr `shouldBe` True
+        doesPathExist childPath `shouldReturn` True
+        doesPathExist dirPath `shouldReturn` True
+        removeTestFiles testFiles
+      _ -> expectationFailure $ "expected exactly one test child, got: " ++ show entries
   it "tries to remove /bin/rm" $ do
     pr <- withStdin "n\n" $ withArgs ["/bin/rm"] $ captureProcessResult run
     prStdout pr
