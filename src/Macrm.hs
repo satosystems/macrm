@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -9,9 +8,11 @@ import Control.Monad (when)
 import Data.Char (toUpper)
 import Data.Int (Int32)
 import Data.List (intercalate)
+import qualified Data.List as List
 import Data.Maybe
   ( fromJust,
     listToMaybe,
+    mapMaybe,
   )
 import qualified Data.Text as T
 import Data.Version (showVersion)
@@ -24,26 +25,20 @@ import GitHash
   )
 import qualified Language.C.Inline as C
 import Paths_macrm (version)
-import System.Console.CmdArgs
-  ( Data,
-    Typeable,
-    args,
-    cmdArgs,
-    explicit,
-    help,
-    name,
-    noAtExpand,
-    program,
-    summary,
-    typ,
-    (&=),
+import System.Console.GetOpt
+  ( ArgDescr (NoArg),
+    ArgOrder (RequireOrder),
+    OptDescr (Option),
+    getOpt,
   )
 import System.Directory (listDirectory)
+import System.Environment (getArgs)
 import System.Exit
   ( ExitCode
       ( ExitFailure,
         ExitSuccess
       ),
+    exitSuccess,
     exitWith,
   )
 import System.FilePath ((</>))
@@ -117,68 +112,114 @@ data Options = Options
     whiteouts :: Bool,
     files :: [FilePath]
   }
-  deriving (Data, Show, Typeable)
+  deriving (Eq, Show)
 
-getOptions :: Options
-getOptions =
-  Options
-    { directory =
-        False
-          &= help "Attempt to remove directories as well as other types of files.",
-      force =
-        False
-          &= help
-            ( "Attempt to remove the files without prompting for confirmation, "
-                ++ "regardless of the file's permissions. If the file does not exist, "
-                ++ "do not display a diagnostic message or modify the exit status to reflect an error. "
-                ++ "The -f option overrides any previous -i options."
-            ),
-      interactive =
-        False
-          &= help
-            ( "Request confirmation before attempting to remove each file, "
-                ++ "regardless of the file's permissions, "
-                ++ "or whether or not the standard input device is a terminal. "
-                ++ "The -i option overrides any previous -f options."
-            ),
-      plaster =
-        False
-          &= name "P"
-          &= help
-            ( "Overwrite regular files before deleting them. "
-                ++ "Files are overwritten three times, first with the byte pattern 0xff, "
-                ++ "then 0x00, and then 0xff again, before they are deleted. "
-                ++ "This flag is ignored under macrm."
-            ),
-      recursive =
-        False
-          &= name "R"
-          &= help
-            ( "Attempt to remove the file hierarchy rooted in each file argument. "
-                ++ "The -R option implies the -d option. If the -i option is specified, "
-                ++ "the user is prompted for confirmation before each directory's "
-                ++ "contents are processed (as well as before the attempt is made to remove the directory). "
-                ++ "If the user does not respond affirmatively, "
-                ++ "the file hierarchy rooted in that directory is skipped."
-            ),
-      recursive' = False &= name "r" &= explicit &= help "Equivalent to -R.",
-      verbose =
-        False
-          &= help
-            "Be verbose when deleting files, showing them as they are removed.",
-      whiteouts =
-        False
-          &= name "W"
-          &= help
-            ( "Attempt to undelete the named files. "
-                ++ "Currently, this option can only be used to recover files covered by whiteouts. "
-                ++ "This flag is ignored under macrm."
-            ),
-      files = [] &= args &= typ "FILES/DIRS"
-    }
-    &= summary versionString
-    &= program "macrm"
-    &= noAtExpand
+data Flag
+  = FlagDirectory
+  | FlagForce
+  | FlagInteractive
+  | FlagPlaster
+  | FlagRecursive
+  | FlagRecursiveAlias
+  | FlagVerbose
+  | FlagWhiteouts
+  | FlagHelp
+  | FlagVersion
+  | FlagNumericVersion
+  deriving (Eq, Show)
+
+data Command = Run Options | PrintHelp | PrintVersion | PrintNumericVersion
+  deriving (Eq, Show)
+
+emptyOptions :: Options
+emptyOptions = Options False False False False False False False False []
+
+optionDescriptions :: [OptDescr Flag]
+optionDescriptions =
+  [ Option ['d'] ["directory"] (NoArg FlagDirectory) "Attempt to remove directories as well as other types of files.",
+    Option ['f'] ["force"] (NoArg FlagForce) "Attempt to remove the files without prompting for confirmation.",
+    Option ['i'] ["interactive"] (NoArg FlagInteractive) "Request confirmation before attempting to remove each file.",
+    Option ['P'] ["plaster"] (NoArg FlagPlaster) "Overwrite regular files before deleting them. This flag is ignored under macrm.",
+    Option ['R'] ["recursive"] (NoArg FlagRecursive) "Attempt to remove the file hierarchy rooted in each file argument.",
+    Option ['r'] [] (NoArg FlagRecursiveAlias) "Equivalent to -R.",
+    Option ['v'] ["verbose"] (NoArg FlagVerbose) "Be verbose when deleting files, showing them as they are removed.",
+    Option ['W'] ["whiteouts"] (NoArg FlagWhiteouts) "Attempt to undelete the named files. This flag is ignored under macrm.",
+    Option ['?'] ["help"] (NoArg FlagHelp) "Display help message",
+    Option ['V'] ["version"] (NoArg FlagVersion) "Print version information",
+    Option [] ["numeric-version"] (NoArg FlagNumericVersion) "Print just the version number"
+  ]
+
+usageString :: String
+usageString = "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
+
+helpString :: String
+helpString =
+  unlines
+    [ "macrm [OPTIONS] [FILES/DIRS]",
+      "",
+      "Common flags:",
+      "  -d --directory        Attempt to remove directories as well as other types",
+      "                        of files.",
+      "  -f --force            Attempt to remove the files without prompting for",
+      "                        confirmation, regardless of the file's permissions. If",
+      "                        the file does not exist, do not display a diagnostic",
+      "                        message or modify the exit status to reflect an error.",
+      "                        The -f option overrides any previous -i options.",
+      "  -i --interactive      Request confirmation before attempting to remove each",
+      "                        file, regardless of the file's permissions, or whether",
+      "                        or not the standard input device is a terminal. The -i",
+      "                        option overrides any previous -f options.",
+      "  -P --plaster          Overwrite regular files before deleting them. Files",
+      "                        are overwritten three times, first with the byte",
+      "                        pattern 0xff, then 0x00, and then 0xff again, before",
+      "                        they are deleted. This flag is ignored under macrm.",
+      "  -R --recursive        Attempt to remove the file hierarchy rooted in each",
+      "                        file argument. The -R option implies the -d option. If",
+      "                        the -i option is specified, the user is prompted for",
+      "                        confirmation before each directory's contents are",
+      "                        processed (as well as before the attempt is made to",
+      "                        remove the directory). If the user does not respond",
+      "                        affirmatively, the file hierarchy rooted in that",
+      "                        directory is skipped.",
+      "  -r                    Equivalent to -R.",
+      "  -v --verbose          Be verbose when deleting files, showing them as they",
+      "                        are removed.",
+      "  -W --whiteouts        Attempt to undelete the named files. Currently, this",
+      "                        option can only be used to recover files covered by",
+      "                        whiteouts. This flag is ignored under macrm.",
+      "  -? --help             Display help message",
+      "  -V --version          Print version information",
+      "     --numeric-version  Print just the version number"
+    ]
+
+parseOptions :: [String] -> Either String Command
+parseOptions rawArgs =
+  case getOpt RequireOrder optionDescriptions rawArgs of
+    (flags, operands, []) -> Right $ flagsToCommand flags operands
+    (_, _, errors) -> Left $ concat errors ++ usageString ++ "\n"
+
+flagsToCommand :: [Flag] -> [FilePath] -> Command
+flagsToCommand flags operands =
+  case listToMaybe $ mapMaybe flagCommand flags of
+    Just command -> command
+    Nothing -> Run $ (List.foldl' applyFlag emptyOptions flags) {files = operands}
+
+flagCommand :: Flag -> Maybe Command
+flagCommand FlagHelp = Just PrintHelp
+flagCommand FlagVersion = Just PrintVersion
+flagCommand FlagNumericVersion = Just PrintNumericVersion
+flagCommand _ = Nothing
+
+applyFlag :: Options -> Flag -> Options
+applyFlag options FlagDirectory = options {directory = True}
+applyFlag options FlagForce = options {force = True, interactive = False}
+applyFlag options FlagInteractive = options {force = False, interactive = True}
+applyFlag options FlagPlaster = options {plaster = True}
+applyFlag options FlagRecursive = options {recursive = True}
+applyFlag options FlagRecursiveAlias = options {recursive' = True}
+applyFlag options FlagVerbose = options {verbose = True}
+applyFlag options FlagWhiteouts = options {whiteouts = True}
+applyFlag options _ = options
 
 absolutize :: FilePath -> IO FilePath
 absolutize path = fromJust . guess_dotdot <$> absolute_path path
@@ -249,7 +290,7 @@ rm options exitCode uid removables (path : paths) = do
               let fileUid = fileOwner status
                   fileGid = fileGroup status
               needRemove <-
-                if uid == fileUid
+                if force options || uid == fileUid
                   then return True
                   else do
                     message <- makeMessage path status fileUid fileGid
@@ -493,7 +534,21 @@ versionString =
 
 run :: IO ()
 run = do
-  options <- cmdArgs getOptions
-  uid <- getRealUserID
-  ec <- rm options ExitSuccess uid [] . files $ options
-  exitWith ec
+  rawArgs <- getArgs
+  case parseOptions rawArgs of
+    Left errors -> do
+      hPutStr stderr errors
+      exitWith $ ExitFailure 1
+    Right PrintHelp -> do
+      putStr helpString
+      exitSuccess
+    Right PrintVersion -> do
+      putStrLn versionString
+      exitSuccess
+    Right PrintNumericVersion -> do
+      putStrLn $ showVersion version
+      exitSuccess
+    Right (Run options) -> do
+      uid <- getRealUserID
+      ec <- rm options ExitSuccess uid [] . files $ options
+      exitWith ec

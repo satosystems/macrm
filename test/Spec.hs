@@ -13,7 +13,10 @@ import Data.UUID (toString)
 import Data.UUID.V4 (nextRandom)
 import Data.Version (showVersion)
 import Macrm
-  ( absolutize,
+  ( Command (..),
+    Options (..),
+    absolutize,
+    parseOptions,
     run,
     versionString,
   )
@@ -451,6 +454,46 @@ spec trashAccess trashPath = describe "run" $ do
     prExitCode pr `shouldBe` ExitSuccess
     (isNothing . prException) pr `shouldBe` True
     removeTestFiles testFiles
+  it "honors the last of -f and -i in short option clusters" $ do
+    parseOptions ["-iRf", "dir"]
+      `shouldBe` Right (Run (Options False True False False True False False False ["dir"]))
+    parseOptions ["-fRi", "dir"]
+      `shouldBe` Right (Run (Options False False True False True False False False ["dir"]))
+    parseOptions ["--", "-iRf"]
+      `shouldBe` Right (Run (Options False False False False False False False False ["-iRf"]))
+    parseOptions ["dir", "-f"]
+      `shouldBe` Right (Run (Options False False False False False False False False ["dir", "-f"]))
+  it "honors the last of --force and --interactive" $ do
+    parseOptions ["--interactive", "--recursive", "--force", "dir"]
+      `shouldBe` Right (Run (Options False True False False True False False False ["dir"]))
+    parseOptions ["--force", "--recursive", "--interactive", "dir"]
+      `shouldBe` Right (Run (Options False False True False True False False False ["dir"]))
+  it "honors -i after -f for a missing file" $ do
+    testFiles <- createTestFiles
+    case notExistPaths testFiles of
+      path : _ -> do
+        let filePath = relativePath path
+        pr <- withArgs ["-fi", filePath] $ captureProcessResult run
+        prStdout pr `shouldBe` ""
+        prStderr pr
+          `shouldBe` BS8.pack
+            ("macrm: " ++ filePath ++ ": No such file or directory\n")
+        prExitCode pr `shouldBe` ExitFailure 1
+        (isNothing . prException) pr `shouldBe` True
+        removeTestFiles testFiles
+      [] -> expectationFailure "expected at least one missing test path"
+  it "honors -f after -i for a missing file" $ do
+    testFiles <- createTestFiles
+    case notExistPaths testFiles of
+      path : _ -> do
+        let filePath = relativePath path
+        pr <- withArgs ["-if", filePath] $ captureProcessResult run
+        prStdout pr `shouldBe` ""
+        prStderr pr `shouldBe` ""
+        prExitCode pr `shouldBe` ExitSuccess
+        (isNothing . prException) pr `shouldBe` True
+        removeTestFiles testFiles
+      [] -> expectationFailure "expected at least one missing test path"
   itWithTrash trashAccess "removes or not with `--interactive' option" $ do
     testFiles <- createTestFiles
     let paths = normalFiles testFiles

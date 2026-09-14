@@ -35,7 +35,6 @@ library:
     - Paths_macrm
   dependencies:
     - MissingH
-    - cmdargs
     - cond
     - directory
     - exceptions
