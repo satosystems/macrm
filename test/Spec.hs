@@ -14,8 +14,10 @@ import Data.UUID.V4 (nextRandom)
 import Data.Version (showVersion)
 import Macrm
   ( Command (..),
+    FileExists (..),
     Options (..),
     absolutize,
+    isPathExists,
     parseOptions,
     run,
     versionString,
@@ -32,7 +34,11 @@ import System.Directory
   )
 import System.Environment (getEnv)
 import System.FilePath (addTrailingPathSeparator, (</>))
-import System.Posix.Files (createSymbolicLink)
+import System.Posix.Files
+  ( createNamedPipe,
+    createSymbolicLink,
+  )
+import System.Timeout (timeout)
 import Test.Hspec
   ( Spec,
     describe,
@@ -290,6 +296,13 @@ spec trashAccess trashPath = describe "run" $ do
     (isNothing . prException) pr `shouldBe` True
     doesPathExist baseDirPath `shouldReturn` True
     doesPathExist barDirPath `shouldReturn` True
+    removeTestFiles testFiles
+  it "inspects a FIFO without opening it" $ do
+    testFiles <- createTestFiles
+    let fifoPath = (relativePath . parentDir) testFiles </> "fifo"
+    createNamedPipe fifoPath 0o600
+    result <- timeout 1000000 $ isPathExists fifoPath
+    result `shouldBe` Just Exists
     removeTestFiles testFiles
   itWithTrash trashAccess "removes a normal file" $ do
     testFiles <- createTestFiles

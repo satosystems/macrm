@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Macrm where
@@ -16,14 +15,12 @@ import Data.Maybe
   )
 import qualified Data.Text as T
 import Data.Version (showVersion)
-import Foreign.C.String (withCString)
 import GitHash
   ( GitInfo,
     giDirty,
     giHash,
     tGitInfoCwd,
   )
-import qualified Language.C.Inline as C
 import Paths_macrm (version)
 import System.Console.GetOpt
   ( ArgDescr (NoArg),
@@ -55,6 +52,7 @@ import System.IO
     stderr,
     stdout,
   )
+import System.IO.Error (tryIOError)
 import System.Path.NameManip
   ( absolute_path,
     guess_dotdot,
@@ -97,11 +95,7 @@ import System.Process
     waitForProcess,
   )
 
-C.include "<fcntl.h>"
-C.include "<unistd.h>"
-C.include "<sys/stat.h>"
-
-data FileExists = NotExists | DeadLink | Exists deriving (Eq, Show)
+data FileExists = NotExists | Exists deriving (Eq, Show)
 
 type FileInfo = (FilePath, FileExists, Maybe FileStatus)
 
@@ -515,25 +509,8 @@ getFileInfo path = do
 
 isPathExists :: FilePath -> IO FileExists
 isPathExists path = do
-  rc <- withCString path $ \cpath ->
-    [C.block| int {
-    struct stat lstat_info;
-    int fd;
-    if (lstat($(char *cpath), &lstat_info) == -1) {
-      return 0; // not exists
-    }
-    fd = open($(char *cpath), O_RDONLY);
-    if (fd == -1) {
-      return 1; // dead link
-    }
-    close(fd);
-    return 2; // exists
-  } |]
-  case rc of
-    0 -> return NotExists
-    1 -> return DeadLink
-    2 -> return Exists
-    _ -> fail $ "unexpected lstat result: " ++ show rc -- never happen
+  result <- tryIOError $ getSymbolicLinkStatus path
+  return $ either (const NotExists) (const Exists) result
 
 gitInfo :: GitInfo
 gitInfo = $$(tGitInfoCwd)
