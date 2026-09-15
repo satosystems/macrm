@@ -95,9 +95,7 @@ import System.Process
     waitForProcess,
   )
 
-data FileExists = NotExists | Exists deriving (Eq, Show)
-
-type FileInfo = (FilePath, FileExists, Maybe FileStatus)
+type FileInfo = (FilePath, Maybe FileStatus)
 
 data Options = Options
   { directory :: Bool,
@@ -238,17 +236,14 @@ rm options exitCode uid removables (path : paths)
   | otherwise = do
       fileInfo <- getFileInfo path
       case fileInfo of
-        (_, NotExists, _) ->
+        (_, Nothing) ->
           if force options
             then rm options exitCode uid removables paths
             else do
               hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
               rm options (ExitFailure 1) uid removables paths
-        (_, _, Nothing) -> do
-          hPutStrLn stderr $ "macrm: " ++ path ++ ": unable to inspect file"
-          rm options (ExitFailure 1) uid removables paths
-        (_, fileExists, Just status) -> do
-          let isDir = fileExists == Exists && isDirectory status
+        (_, Just status) -> do
+          let isDir = isDirectory status
           let withRecursive = recursive options || recursive' options
           let withDirectory = directory options
           isNotEmpty <-
@@ -356,7 +351,7 @@ rmInteractiveRecursiveDirectory options exitCode uid removables fileInfo path pa
 
 remove :: [FileInfo] -> IO ExitCode
 remove fileInfos = do
-  let paths = map (\(path, _, _) -> path) fileInfos
+  let paths = map fst fileInfos
   absolutePaths <- mapM absolutize paths
   executeScript . createScript . reverse $ absolutePaths
 
@@ -500,17 +495,8 @@ makeUserAndGroupString uid gid = do
 
 getFileInfo :: FilePath -> IO FileInfo
 getFileInfo path = do
-  fileExists <- isPathExists path
-  if fileExists == NotExists
-    then return (path, fileExists, Nothing)
-    else do
-      status <- getSymbolicLinkStatus path
-      return (path, fileExists, Just status)
-
-isPathExists :: FilePath -> IO FileExists
-isPathExists path = do
   result <- tryIOError $ getSymbolicLinkStatus path
-  return $ either (const NotExists) (const Exists) result
+  return (path, either (const Nothing) Just result)
 
 gitInfo :: GitInfo
 gitInfo = $$(tGitInfoCwd)

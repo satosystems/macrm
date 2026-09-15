@@ -14,10 +14,9 @@ import Data.UUID.V4 (nextRandom)
 import Data.Version (showVersion)
 import Macrm
   ( Command (..),
-    FileExists (..),
     Options (..),
     absolutize,
-    isPathExists,
+    getFileInfo,
     parseOptions,
     run,
     versionString,
@@ -301,8 +300,10 @@ spec trashAccess trashPath = describe "run" $ do
     testFiles <- createTestFiles
     let fifoPath = (relativePath . parentDir) testFiles </> "fifo"
     createNamedPipe fifoPath 0o600
-    result <- timeout 1000000 $ isPathExists fifoPath
-    result `shouldBe` Just Exists
+    result <- timeout 1000000 $ getFileInfo fifoPath
+    case result of
+      Just (_, Just _) -> return ()
+      _ -> expectationFailure "expected FIFO status without blocking"
     removeTestFiles testFiles
   itWithTrash trashAccess "removes a normal file" $ do
     testFiles <- createTestFiles
