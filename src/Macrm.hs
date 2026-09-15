@@ -41,7 +41,11 @@ import System.Exit
     exitSuccess,
     exitWith,
   )
-import System.FilePath ((</>))
+import System.FilePath
+  ( dropTrailingPathSeparator,
+    takeFileName,
+    (</>),
+  )
 import System.IO
   ( hClose,
     hFlush,
@@ -232,74 +236,86 @@ rm (Options False False False False False False False False []) ExitSuccess _ []
       "usage: macrm [-f | -i] [-dPRrvW] file ...\n       unlink file"
     return $ ExitFailure 1
 rm _ exitCode _ removables [] = removeRemovables exitCode removables
-rm options exitCode uid removables (path : paths) = do
-  fileInfo <- getFileInfo path
-  case fileInfo of
-    (_, NotExists, _) ->
-      if force options
-        then rm options exitCode uid removables paths
-        else do
-          hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
-          rm options (ExitFailure 1) uid removables paths
-    (_, _, Nothing) -> do
-      hPutStrLn stderr $ "macrm: " ++ path ++ ": unable to inspect file"
+rm options exitCode uid removables (path : paths)
+  | isDotOrDotDotPath path = do
+      -- "." と ".." は現在/親ディレクトリそのものを指すため、オプションに関係なく拒否する。
+      hPutStrLn stderr "macrm: \".\" and \"..\" may not be removed"
       rm options (ExitFailure 1) uid removables paths
-    (_, fileExists, Just status) -> do
-      let isDir = fileExists == Exists && isDirectory status
-      let withRecursive = recursive options || recursive' options
-      let withDirectory = directory options
-      isNotEmpty <-
-        if isDir
-          then not . null <$> listDirectory path
-          else return False
-      if isDir
-        && not withRecursive
-        && (not withDirectory || withDirectory && isNotEmpty)
-        then
-          if withDirectory && isNotEmpty
-            then do
-              hPutStrLn stderr $ "macrm: " ++ path ++ ": Directory not empty"
-              rm options (ExitFailure 1) uid removables paths
+  | otherwise = do
+      fileInfo <- getFileInfo path
+      case fileInfo of
+        (_, NotExists, _) ->
+          if force options
+            then rm options exitCode uid removables paths
             else do
-              hPutStrLn stderr $ "macrm: " ++ path ++ ": is a directory"
+              hPutStrLn stderr $ "macrm: " ++ path ++ ": No such file or directory"
               rm options (ExitFailure 1) uid removables paths
-        else
-          if interactive options
-            then do
-              let (message, isDirWithRecursive) = case (isDir, withRecursive) of
-                    (True, True) -> ("examine files in directory ", True)
-                    _ -> ("remove ", False)
-              agreement <- getAgreement message path
-              if agreement
-                then
-                  if isDirWithRecursive
+        (_, _, Nothing) -> do
+          hPutStrLn stderr $ "macrm: " ++ path ++ ": unable to inspect file"
+          rm options (ExitFailure 1) uid removables paths
+        (_, fileExists, Just status) -> do
+          let isDir = fileExists == Exists && isDirectory status
+          let withRecursive = recursive options || recursive' options
+          let withDirectory = directory options
+          isNotEmpty <-
+            if isDir
+              then not . null <$> listDirectory path
+              else return False
+          if isDir
+            && not withRecursive
+            && (not withDirectory || withDirectory && isNotEmpty)
+            then
+              if withDirectory && isNotEmpty
+                then do
+                  hPutStrLn stderr $ "macrm: " ++ path ++ ": Directory not empty"
+                  rm options (ExitFailure 1) uid removables paths
+                else do
+                  hPutStrLn stderr $ "macrm: " ++ path ++ ": is a directory"
+                  rm options (ExitFailure 1) uid removables paths
+            else
+              if interactive options
+                then do
+                  let (message, isDirWithRecursive) = case (isDir, withRecursive) of
+                        (True, True) -> ("examine files in directory ", True)
+                        _ -> ("remove ", False)
+                  agreement <- getAgreement message path
+                  if agreement
                     then
-                      rmInteractiveRecursiveDirectory
-                        options
-                        exitCode
-                        uid
-                        removables
-                        fileInfo
-                        path
-                        paths
-                    else do
+                      if isDirWithRecursive
+                        then
+                          rmInteractiveRecursiveDirectory
+                            options
+                            exitCode
+                            uid
+                            removables
+                            fileInfo
+                            path
+                            paths
+                        else do
+                          when (verbose options) $ putStrLn path
+                          rm options exitCode uid (fileInfo : removables) paths
+                    else rm options exitCode uid removables paths
+                else do
+                  let fileUid = fileOwner status
+                      fileGid = fileGroup status
+                  needRemove <-
+                    if force options || uid == fileUid
+                      then return True
+                      else do
+                        message <- makeMessage path status fileUid fileGid
+                        getAgreement message path
+                  if needRemove
+                    then do
                       when (verbose options) $ putStrLn path
                       rm options exitCode uid (fileInfo : removables) paths
-                else rm options exitCode uid removables paths
-            else do
-              let fileUid = fileOwner status
-                  fileGid = fileGroup status
-              needRemove <-
-                if force options || uid == fileUid
-                  then return True
-                  else do
-                    message <- makeMessage path status fileUid fileGid
-                    getAgreement message path
-              if needRemove
-                then do
-                  when (verbose options) $ putStrLn path
-                  rm options exitCode uid (fileInfo : removables) paths
-                else rm options exitCode uid removables paths
+                    else rm options exitCode uid removables paths
+
+isDotOrDotDotPath :: FilePath -> Bool
+isDotOrDotDotPath path =
+  case takeFileName $ dropTrailingPathSeparator path of
+    "." -> True
+    ".." -> True
+    _ -> False
 
 removeRemovables :: ExitCode -> [FileInfo] -> IO ExitCode
 removeRemovables exitCode [] = return exitCode

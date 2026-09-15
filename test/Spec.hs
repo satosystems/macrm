@@ -256,6 +256,41 @@ spec trashAccess trashPath = describe "run" $ do
     prExitCode pr `shouldBe` ExitFailure 1
     (isNothing . prException) pr `shouldBe` True
     removeTestFiles testFiles
+  it "refuses to remove trailing . and .. paths" $ do
+    testFiles <- createTestFiles
+    let baseDirPath = relativePath . parentDir $ testFiles
+    let barDirPath = baseDirPath </> "foo" </> "bar"
+    createDirectoryIfMissing True barDirPath
+    let dotPath = barDirPath </> "."
+    let dotDotPath = barDirPath </> ".."
+    pr <-
+      withStdin "y\ny\n" $
+        withArgs ["-iRf", dotPath, dotDotPath] $
+          captureProcessResult run
+    prStdout pr `shouldBe` ""
+    prStderr pr
+      `shouldBe` BS8.unlines
+        (replicate 2 "macrm: \".\" and \"..\" may not be removed")
+    prExitCode pr `shouldBe` ExitFailure 1
+    (isNothing . prException) pr `shouldBe` True
+    doesPathExist baseDirPath `shouldReturn` True
+    doesPathExist barDirPath `shouldReturn` True
+    removeTestFiles testFiles
+  it "refuses a trailing . path before treating it as a directory" $ do
+    testFiles <- createTestFiles
+    let baseDirPath = relativePath . parentDir $ testFiles
+    let barDirPath = baseDirPath </> "foo" </> "bar"
+    createDirectoryIfMissing True barDirPath
+    let dotPath = barDirPath </> "."
+    pr <- withArgs [dotPath] $ captureProcessResult run
+    prStdout pr `shouldBe` ""
+    prStderr pr
+      `shouldBe` BS8.pack "macrm: \".\" and \"..\" may not be removed\n"
+    prExitCode pr `shouldBe` ExitFailure 1
+    (isNothing . prException) pr `shouldBe` True
+    doesPathExist baseDirPath `shouldReturn` True
+    doesPathExist barDirPath `shouldReturn` True
+    removeTestFiles testFiles
   itWithTrash trashAccess "removes a normal file" $ do
     testFiles <- createTestFiles
     let path = head . normalFiles $ testFiles
